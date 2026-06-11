@@ -1,0 +1,3 @@
+Animation clips in Assets/3d/room.glb:
+- close /open length=2.458s
+- Mesh_0.001Action length=2.5s

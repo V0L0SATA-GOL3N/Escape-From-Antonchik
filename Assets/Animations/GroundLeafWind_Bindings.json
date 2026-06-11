@@ -1,0 +1,32 @@
+{
+  "model": "Assets/3d/ground.glb",
+  "clips": [
+    {
+      "name": "MorphBake",
+      "length": 6.375,
+      "curveCount": 10,
+      "paths": [
+        "trees1/root/GLTF_SceneRootNode/Leaf_6_3/mesh_1",
+        "trees1/root/GLTF_SceneRootNode/Leaf_6_3/mesh_1.001"
+      ]
+    },
+    {
+      "name": "MorphBake.001",
+      "length": 6.375,
+      "curveCount": 10,
+      "paths": [
+        "trees1.001/root.003/GLTF_SceneRootNode.003/Leaf_6_3.001/mesh_1.002",
+        "trees1.001/root.003/GLTF_SceneRootNode.003/Leaf_6_3.001/mesh_1.003"
+      ]
+    },
+    {
+      "name": "MorphBake.002",
+      "length": 6.375,
+      "curveCount": 10,
+      "paths": [
+        "trees1.002/root.004/GLTF_SceneRootNode.004/Leaf_6_3.002/mesh_1.004",
+        "trees1.002/root.004/GLTF_SceneRootNode.004/Leaf_6_3.002/mesh_1.005"
+      ]
+    }
+  ]
+}
