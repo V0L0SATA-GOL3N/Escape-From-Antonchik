@@ -271,6 +271,7 @@ public class MainDoorSceneTransition : MonoBehaviour
 
     private void LoadTargetScene()
     {
+        InventoryCarryOver.Capture(FindObjectOfType<DoorRaycastInteractor>());
         SceneManager.LoadScene(targetSceneName);
     }
 

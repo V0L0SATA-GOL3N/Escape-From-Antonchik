@@ -127,9 +127,10 @@ public class DoorRaycastInteractor : MonoBehaviour
         if (isSeated)
         {
             shouldShowLabel = true;
-            prompt = "Press Space to stand up";
+            bool terminalCapturing = MonitorYoutubeDesktop.TerminalCaptureActive;
+            prompt = terminalCapturing ? "Type 'exit' to leave the terminal" : "Press Space to stand up";
 
-            if (!isAnimatingChair && Input.GetKeyDown(KeyCode.Space))
+            if (!isAnimatingChair && !terminalCapturing && Input.GetKeyDown(KeyCode.Space))
             {
                 StartCoroutine(StandFromChairRoutine());
             }
@@ -152,10 +153,20 @@ public class DoorRaycastInteractor : MonoBehaviour
         float magazineDistance = 0f;
         PickupInteractable pickup = null;
         ChairInteractable chair = null;
+        SimpleInteractable simple = null;
 
         for (int i = 0; i < hits.Length; i++)
         {
             RaycastHit hit = hits[i];
+
+            if (simple == null)
+            {
+                SimpleInteractable hitSimple = hit.collider.GetComponentInParent<SimpleInteractable>();
+                if (hitSimple != null && hitSimple.CanInteract && IsWithinInteractionDistance(hit.distance, hitSimple.InteractionDistance))
+                {
+                    simple = hitSimple;
+                }
+            }
 
             if (door == null)
             {
@@ -249,6 +260,16 @@ public class DoorRaycastInteractor : MonoBehaviour
         {
             shouldShowLabel = true;
             prompt = door.IsOpen ? "Press E to close" : "Press E to open";
+        }
+        else if (simple != null)
+        {
+            shouldShowLabel = true;
+            prompt = simple.Prompt;
+
+            if (!isAnimatingPickup && Input.GetKeyDown(interactKey))
+            {
+                simple.Interact();
+            }
         }
         else if (chair != null && heldObject == null)
         {
@@ -850,6 +871,104 @@ public class DoorRaycastInteractor : MonoBehaviour
 
             inventorySlotLabels[i].text = inventorySlots[i] != null ? CleanInventoryName(inventorySlots[i].DisplayName) : string.Empty;
         }
+    }
+
+    // --- public inventory access for quest logic / cross-scene carry-over ---
+
+    public string[] GetCarriedItemNames()
+    {
+        var names = new System.Collections.Generic.List<string>();
+        for (int i = 0; i < inventorySlots.Length; i++)
+        {
+            if (inventorySlots[i] != null)
+            {
+                names.Add(CleanInventoryName(inventorySlots[i].DisplayName));
+            }
+        }
+
+        return names.ToArray();
+    }
+
+    public bool HasItemNamed(string cleanName)
+    {
+        return FindSlotByName(cleanName) >= 0;
+    }
+
+    // Removes the item from the inventory and returns it re-enabled in the
+    // world (parent cleared, renderers on, kinematic) so quest code can hand
+    // it to an NPC or animate it.
+    public PickupInteractable TakeItemNamed(string cleanName)
+    {
+        int slot = FindSlotByName(cleanName);
+        if (slot < 0)
+        {
+            return null;
+        }
+
+        PickupInteractable item = inventorySlots[slot];
+        inventorySlots[slot] = null;
+
+        if (slot == activeSlotIndex && handsAnimatorDriver != null)
+        {
+            handsAnimatorDriver.ReleasePickupReach();
+            handsAnimatorDriver.SetHeldGunPose(false);
+            handsAnimatorDriver.SetMoveFingersWhileWalking(true);
+        }
+
+        item.Drop(Vector3.zero);
+        Rigidbody body = item.GetComponent<Rigidbody>();
+        if (body != null)
+        {
+            body.velocity = Vector3.zero;
+            body.isKinematic = true;
+        }
+
+        UpdateInventoryHud();
+        return item;
+    }
+
+    public bool GiveItem(PickupInteractable item)
+    {
+        if (item == null)
+        {
+            return false;
+        }
+
+        int slot = GetPickupSlotIndex();
+        if (slot < 0)
+        {
+            return false;
+        }
+
+        inventorySlots[slot] = item;
+        item.BeginPickup();
+
+        if (slot == activeSlotIndex)
+        {
+            item.AttachTo(holdPoint);
+            ApplyHeldObjectHandPose(item);
+        }
+        else
+        {
+            item.StowInInventory(inventoryStowPoint);
+        }
+
+        UpdateInventoryHud();
+        return true;
+    }
+
+    private int FindSlotByName(string cleanName)
+    {
+        for (int i = 0; i < inventorySlots.Length; i++)
+        {
+            if (inventorySlots[i] != null &&
+                CleanInventoryName(inventorySlots[i].DisplayName).Equals(cleanName, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private static string CleanInventoryName(string rawName)

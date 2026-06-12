@@ -170,6 +170,12 @@ public class GunWeaponController : MonoBehaviour
                 {
                     hitBody.AddForceAtPosition(shootCamera.transform.forward * hitForce, hit.point, ForceMode.Impulse);
                 }
+
+                ShootableTarget shootable = hit.collider.GetComponentInParent<ShootableTarget>();
+                if (shootable != null)
+                {
+                    shootable.OnShot(hit.point);
+                }
             }
         }
 
