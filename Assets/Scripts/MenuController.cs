@@ -66,6 +66,9 @@ public class MenuController : MonoBehaviour
     private bool previousPlayerCanMove;
     private bool previousCameraCanMove;
     private GameObject activeMenuPage;
+    private Button ultraLowQualityButton;
+    private Button lowQualityButton;
+    private Button highQualityButton;
     private Coroutine pageTransitionRoutine;
     private Coroutine pauseOpenRoutine;
     private bool introActive;
@@ -101,6 +104,11 @@ public class MenuController : MonoBehaviour
     private void Update()
     {
         if (introActive)
+        {
+            return;
+        }
+
+        if (AntonchikFenceEncounter.SequenceActive)
         {
             return;
         }
@@ -450,9 +458,10 @@ public class MenuController : MonoBehaviour
         Stretch(panel.GetComponent<RectTransform>());
 
         CreatePageText("Settings", panel.transform, new Vector2(70f, 265f), new Vector2(520f, 90f), 66, TextAlignmentOptions.Left);
-        CreateSliderRow(panel.transform, "Volume", new Vector2(70f, 90f), VolumePref, 1f, 0f, 1f, value => AudioListener.volume = value);
-        CreateSliderRow(panel.transform, "Mouse Sensitivity", new Vector2(70f, -70f), SensitivityPref, 2f, SensitivityMin, SensitivityMax, ApplyMouseSensitivity);
-        CreateToggleRow(panel.transform, "Fullscreen", new Vector2(70f, -205f), FullscreenPref, Screen.fullScreen, value => Screen.fullScreen = value);
+        CreateSliderRow(panel.transform, "Volume", new Vector2(70f, 110f), VolumePref, 1f, 0f, 1f, value => AudioListener.volume = value);
+        CreateSliderRow(panel.transform, "Mouse Sensitivity", new Vector2(70f, 5f), SensitivityPref, 2f, SensitivityMin, SensitivityMax, ApplyMouseSensitivity);
+        CreateToggleRow(panel.transform, "Fullscreen", new Vector2(70f, -95f), FullscreenPref, Screen.fullScreen, value => Screen.fullScreen = value);
+        CreateQualityRow(panel.transform, new Vector2(70f, -195f));
 
         Button backButton = CreateButton("Settings Back Button", panel.transform, "Back", BackFromSettings);
         ConfigureRuntimeMenuButton(backButton.gameObject, new Vector2(70f, -330f), new Vector2(520f, 92f), parentToPauseRoot ? Color.white : new Color(0.2f, 0.2f, 0.2f, 1f));
@@ -515,6 +524,74 @@ public class MenuController : MonoBehaviour
             PlayerPrefs.SetFloat(prefKey, value);
             onChanged(value);
         });
+    }
+
+    private void CreateQualityRow(Transform parent, Vector2 position)
+    {
+        GameObject row = CreatePanel("Graphics Row", parent, Color.clear, position, new Vector2(720f, 96f));
+        RectTransform rowRect = row.GetComponent<RectTransform>();
+        rowRect.anchorMin = new Vector2(0f, 0.5f);
+        rowRect.anchorMax = new Vector2(0f, 0.5f);
+        rowRect.pivot = new Vector2(0f, 0.5f);
+        CreateText("Graphics", row.transform, 28, Color.white, TextAlignmentOptions.Left, new Vector2(300f, 64f));
+
+        ultraLowQualityButton = CreateButton("Graphics Ultra Low Button", row.transform, "Ultra Low", () => SetGraphicsQuality(GraphicsQualityManager.UltraLowMode));
+        ConfigureQualityButton(ultraLowQualityButton, new Vector2(330f, 0f), 168f);
+        lowQualityButton = CreateButton("Graphics Low Button", row.transform, "Low", () => SetGraphicsQuality(GraphicsQualityManager.LowMode));
+        ConfigureQualityButton(lowQualityButton, new Vector2(508f, 0f), 110f);
+        highQualityButton = CreateButton("Graphics High Button", row.transform, "High", () => SetGraphicsQuality(GraphicsQualityManager.HighMode));
+        ConfigureQualityButton(highQualityButton, new Vector2(628f, 0f), 110f);
+
+        UpdateQualityButtons();
+    }
+
+    private void ConfigureQualityButton(Button button, Vector2 position, float width)
+    {
+        RectTransform rect = button.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0f, 0.5f);
+        rect.anchorMax = new Vector2(0f, 0.5f);
+        rect.pivot = new Vector2(0f, 0.5f);
+        rect.anchoredPosition = position;
+        rect.sizeDelta = new Vector2(width, 56f);
+
+        TextMeshProUGUI label = button.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (label != null)
+        {
+            RectTransform labelRect = label.GetComponent<RectTransform>();
+            if (labelRect != null)
+            {
+                Stretch(labelRect);
+            }
+        }
+    }
+
+    private void SetGraphicsQuality(int mode)
+    {
+        PlayClick();
+        GraphicsQualityManager.SetMode(mode);
+        UpdateQualityButtons();
+    }
+
+    private void UpdateQualityButtons()
+    {
+        int mode = GraphicsQualityManager.Mode;
+        ApplyQualityButtonState(ultraLowQualityButton, mode == GraphicsQualityManager.UltraLowMode);
+        ApplyQualityButtonState(lowQualityButton, mode == GraphicsQualityManager.LowMode);
+        ApplyQualityButtonState(highQualityButton, mode == GraphicsQualityManager.HighMode);
+    }
+
+    private void ApplyQualityButtonState(Button button, bool selected)
+    {
+        if (button == null)
+        {
+            return;
+        }
+
+        Image image = button.GetComponent<Image>();
+        if (image != null)
+        {
+            image.color = selected ? new Color(1f, 0.42f, 0.38f, 1f) : new Color(0.62f, 0.62f, 0.62f, 1f);
+        }
     }
 
     private void CreateToggleRow(Transform parent, string label, Vector2 position, string prefKey, bool fallback, System.Action<bool> onChanged)
@@ -919,6 +996,7 @@ public class MenuController : MonoBehaviour
         AudioListener.volume = PlayerPrefs.GetFloat(VolumePref, 1f);
         Screen.fullScreen = PlayerPrefs.GetInt(FullscreenPref, Screen.fullScreen ? 1 : 0) == 1;
         ApplyMouseSensitivity(Mathf.Clamp(PlayerPrefs.GetFloat(SensitivityPref, 2f), SensitivityMin, SensitivityMax));
+        GraphicsQualityManager.Apply();
     }
 
     private void ApplyMouseSensitivity(float value)

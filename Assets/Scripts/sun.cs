@@ -11,6 +11,12 @@ public class NightMode : MonoBehaviour
 
     void Start()
     {
+        if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null)
+        {
+            // HDRP drives sky, ambient and the moon through volume profiles.
+            return;
+        }
+
         // Change skybox
         RenderSettings.skybox = nightSkybox;
 
@@ -31,6 +37,11 @@ public class NightMode : MonoBehaviour
     private static void ApplyNightToContinueGameplay()
     {
         if (SceneManager.GetActiveScene().name != "continueGamePlay")
+        {
+            return;
+        }
+
+        if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null)
         {
             return;
         }
