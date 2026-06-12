@@ -1,13 +1,20 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
 
+// Quest director for the yard (continueGamePlay). Antonchik jumps the player
+// near the fence and opens a branching dialog driven by an internal trust
+// value. Bring him whisky, run his errands, earn the car keys — or catch a
+// bullet. Also boots the radio, the scalapendras, the screamer system and
+// the truck.
+//
+// Dialog tree: see DIALOG_DIAGRAM.md in the project root.
 public class AntonchikFenceEncounter : MonoBehaviour
 {
     [Header("Trigger")]
@@ -19,19 +26,20 @@ public class AntonchikFenceEncounter : MonoBehaviour
     [Header("Antonchik")]
     [SerializeField] private GameObject antonPrefab;
     [SerializeField] private AnimationClip idleClip;
+    [SerializeField] private AnimationClip walkClip;
     [SerializeField] private float spawnDistance = 2.3f;
     [SerializeField] private float turnDuration = 0.55f;
 
     [Header("Dialog")]
     [SerializeField] private string speakerName = "АНТОНЧИК";
-    [SerializeField] private string dialogLine = "do you have money... or beer";
     [SerializeField] private float lettersPerSecond = 14f;
-    [SerializeField] private string replyText = "Мужчина денег нет";
-    [SerializeField] private float replyTimeLimit = 8f;
+    [SerializeField] private float replyTimeLimit = 10f;
 
-    [Header("Gun")]
+    [Header("Quest Props")]
     [SerializeField] private GameObject pistolPrefab;
-    [SerializeField] private float gunRaiseDuration = 0.8f;
+    [SerializeField] private GameObject magazinePrefab;
+    [SerializeField] private GameObject snusPrefab;
+    [SerializeField] private GameObject truckPrefab;
 
     [Header("Audio")]
     [SerializeField] private AudioClip jumpscareSound;
@@ -43,27 +51,50 @@ public class AntonchikFenceEncounter : MonoBehaviour
     private Transform playerTransform;
     private Camera playerCamera;
     private Rigidbody playerRigidbody;
+    private DoorRaycastInteractor interactor;
     private AudioSource uiAudioSource;
     private AudioSource worldAudioSource;
     private readonly List<Collider> fenceColliders = new List<Collider>();
     private readonly List<Transform> fenceTransforms = new List<Transform>();
 
     private GameObject antonInstance;
-    private GameObject gunInstance;
+    private AntonchikPuppeteer puppeteer;
+    private SimpleInteractable antonTalk;
+    private Light rimLight;
     private Canvas encounterCanvas;
     private GameObject dialogRoot;
     private TextMeshProUGUI speakerLabel;
     private TextMeshProUGUI dialogLabel;
-    private GameObject replyRoot;
+    private GameObject choicesRoot;
     private Image timerFill;
-    private GameObject deathRoot;
-    private CanvasGroup deathGroup;
-    private TextMeshProUGUI deathTitle;
+
+    private ScalapendraSpawner scalapendraSpawner;
+    private ScreamerController screamerController;
+    private GameObject snusInstance;
+    private GameObject gateKeysInstance;
 
     private bool encounterStarted;
     private bool armed;
     private float armedTimer;
-    private bool replied;
+    private bool dialogBusy;
+    private bool playerWasLocked;
+
+    // --- internal state ---
+    private int trust = 30;
+    private QuestStage stage = QuestStage.BeforeEncounter;
+    private QuestStage pendingTaskStage = QuestStage.FindSnus;
+    private int chosenIndex = -1;
+    private bool choiceTimedOutOnce;
+
+    private enum QuestStage
+    {
+        BeforeEncounter,
+        IntroDialog,
+        FindSnus,
+        FindGateKeys,
+        GoToCar,
+        Dead
+    }
 
     public static bool SequenceActive { get; private set; }
 
@@ -72,6 +103,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
         SequenceActive = false;
         ResolveSceneReferences();
         EnsureAssetsLoaded();
+        SetupYard();
     }
 
     private void OnDestroy()
@@ -91,7 +123,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
             if (IsPlayerNearFence())
             {
                 armed = true;
-                armedTimer = Random.Range(minRandomDelay, maxRandomDelay);
+                armedTimer = UnityEngine.Random.Range(minRandomDelay, maxRandomDelay);
             }
 
             return;
@@ -104,6 +136,10 @@ public class AntonchikFenceEncounter : MonoBehaviour
             StartCoroutine(EncounterRoutine());
         }
     }
+
+    // ------------------------------------------------------------------
+    // setup
+    // ------------------------------------------------------------------
 
     private void ResolveSceneReferences()
     {
@@ -119,6 +155,8 @@ public class AntonchikFenceEncounter : MonoBehaviour
         {
             playerCamera = playerController.GetComponentInChildren<Camera>(true);
         }
+
+        interactor = FindObjectOfType<DoorRaycastInteractor>();
 
         fenceColliders.Clear();
         fenceTransforms.Clear();
@@ -160,9 +198,29 @@ public class AntonchikFenceEncounter : MonoBehaviour
             pistolPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Pistol_00.prefab");
         }
 
+        if (magazinePrefab == null)
+        {
+            magazinePrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/mag Variant.prefab");
+        }
+
+        if (snusPrefab == null)
+        {
+            snusPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/snus.prefab");
+        }
+
+        if (truckPrefab == null)
+        {
+            truckPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Pickup/Prefabs/PickUp_Damaged.prefab");
+        }
+
         if (idleClip == null)
         {
             idleClip = AssetDatabase.LoadAssetAtPath<AnimationClip>("Assets/3d/Standing Idle.fbx");
+        }
+
+        if (walkClip == null)
+        {
+            walkClip = AssetDatabase.LoadAssetAtPath<AnimationClip>("Assets/Animations/Walking.fbx");
         }
 
         if (typingSound == null)
@@ -184,6 +242,110 @@ public class AntonchikFenceEncounter : MonoBehaviour
         if (jumpscareSound == null)
         {
             jumpscareSound = ProceduralJumpscareSting.Create();
+        }
+    }
+
+    // Everything the yard needs besides Antonchik himself.
+    private void SetupYard()
+    {
+        if (interactor != null)
+        {
+            InventoryCarryOver.RestoreInto(interactor);
+        }
+
+        // radio prop
+        GameObject radioObject = GameObject.Find("radio");
+        if (radioObject != null && radioObject.GetComponent<RadioController>() == null)
+        {
+            radioObject.AddComponent<RadioController>();
+        }
+
+        scalapendraSpawner = gameObject.AddComponent<ScalapendraSpawner>();
+        screamerController = gameObject.AddComponent<ScreamerController>();
+
+        SpawnTruck();
+        PlacePistolOnBox();
+
+        StartCoroutine(InitialObjectiveRoutine());
+    }
+
+    private IEnumerator InitialObjectiveRoutine()
+    {
+        yield return new WaitForSeconds(2.5f);
+        if (stage == QuestStage.BeforeEncounter)
+        {
+            TaskHud.SetObjective($"Найди способ <color={TaskHud.Highlight}>выбраться со двора</color>");
+        }
+    }
+
+    private void SpawnTruck()
+    {
+        if (truckPrefab == null)
+        {
+            return;
+        }
+
+        GameObject gateObject = GameObject.Find("gate");
+        Vector3 anchor = gateObject != null ? gateObject.transform.position : transform.position;
+        Vector3 inward = playerTransform != null
+            ? (playerTransform.position - anchor)
+            : Vector3.forward;
+        inward.y = 0f;
+        inward.Normalize();
+
+        Vector3 carPosition = anchor + inward * 7.5f;
+        if (Physics.Raycast(carPosition + Vector3.up * 8f, Vector3.down, out RaycastHit hit, 30f, ~0, QueryTriggerInteraction.Ignore))
+        {
+            carPosition = hit.point;
+        }
+
+        Quaternion facing = Quaternion.LookRotation(-inward, Vector3.up);
+        GameObject truck = Instantiate(truckPrefab, carPosition, facing);
+        truck.name = "Машина Антончика";
+        BuiltinPipelineCompatibility.PatchSpawnedObject(truck);
+        truck.AddComponent<CarEscapeController>();
+    }
+
+    private void PlacePistolOnBox()
+    {
+        if (pistolPrefab == null || ScreamerController.PlayerCarriesGun())
+        {
+            return;
+        }
+
+        GameObject boxObject = GameObject.Find("box");
+        Vector3 position;
+        if (boxObject != null)
+        {
+            Renderer boxRenderer = boxObject.GetComponentInChildren<Renderer>();
+            position = boxRenderer != null
+                ? boxRenderer.bounds.center + Vector3.up * (boxRenderer.bounds.extents.y + 0.05f)
+                : boxObject.transform.position + Vector3.up * 1f;
+        }
+        else if (playerTransform != null)
+        {
+            position = playerTransform.position + playerTransform.right * 2f;
+        }
+        else
+        {
+            return;
+        }
+
+        GameObject pistol = Instantiate(pistolPrefab, position, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 90f));
+        pistol.name = "Pistol_00";
+        BuiltinPipelineCompatibility.PatchSpawnedObject(pistol);
+
+        if (magazinePrefab != null)
+        {
+            GameObject magazine = Instantiate(magazinePrefab, position + Vector3.right * 0.25f, Quaternion.identity);
+            magazine.name = "mag Variant";
+            BuiltinPipelineCompatibility.PatchSpawnedObject(magazine);
+
+            // PhysX rejects concave mesh colliders on dynamic rigidbodies
+            foreach (MeshCollider meshCollider in magazine.GetComponentsInChildren<MeshCollider>(true))
+            {
+                meshCollider.convex = true;
+            }
         }
     }
 
@@ -220,9 +382,15 @@ public class AntonchikFenceEncounter : MonoBehaviour
         return false;
     }
 
+    // ------------------------------------------------------------------
+    // encounter flow
+    // ------------------------------------------------------------------
+
     private IEnumerator EncounterRoutine()
     {
         SequenceActive = true;
+        stage = QuestStage.IntroDialog;
+        TaskHud.ClearObjective();
         LockPlayer();
         SpawnAntonBehindPlayer();
         PlayJumpscareSound();
@@ -232,14 +400,661 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         BuildEncounterCanvas();
         BuildDialogPanel();
-        yield return TypeDialogLine();
-        yield return ReplyPhase();
-        yield return GunSequence();
-        yield return ShowDeathScreen();
+
+        yield return RunDialog("intro");
+
+        if (stage != QuestStage.Dead)
+        {
+            EndDialogUi();
+            BeginTasksPhase();
+        }
     }
+
+    private void BeginTasksPhase()
+    {
+        SequenceActive = false;
+        UnlockPlayer();
+        scalapendraSpawner.Activate();
+
+        antonTalk = antonInstance.AddComponent<SimpleInteractable>();
+        antonTalk.Prompt = "Press E to talk to Antonchik";
+        antonTalk.SetInteractionDistance(4f);
+        antonTalk.Interacted += OnTalkToAnton;
+        EnsureAntonCollider();
+
+        if (pendingTaskStage == QuestStage.FindGateKeys)
+        {
+            StartGateKeysTask();
+        }
+        else
+        {
+            StartSnusTask();
+        }
+    }
+
+    private void StartSnusTask()
+    {
+        stage = QuestStage.FindSnus;
+        SpawnSnusInYard();
+        TaskHud.SetObjective($"Найди <color={TaskHud.Highlight}>снюс</color> во дворе и принеси Антончику");
+    }
+
+    private void StartGateKeysTask()
+    {
+        stage = QuestStage.FindGateKeys;
+        SpawnGateKeys();
+        TaskHud.SetObjective($"Найди <color={TaskHud.Highlight}>ключи от ворот</color> у забора");
+        StartCoroutine(ScreamerWatcherRoutine());
+    }
+
+    private IEnumerator ScreamerWatcherRoutine()
+    {
+        float delay = UnityEngine.Random.Range(10f, 18f);
+        float waited = 0f;
+        while (stage == QuestStage.FindGateKeys && waited < 90f)
+        {
+            waited += Time.deltaTime;
+            if (waited >= delay && ScreamerController.PlayerCarriesGun() && !SequenceActive)
+            {
+                screamerController.TriggerScreamer();
+                yield break;
+            }
+
+            yield return null;
+        }
+    }
+
+    private void OnTalkToAnton()
+    {
+        if (dialogBusy || stage == QuestStage.Dead || GameOverScreen.IsActive)
+        {
+            return;
+        }
+
+        switch (stage)
+        {
+            case QuestStage.FindSnus:
+                StartCoroutine(interactor != null && interactor.HasItemNamed("snus")
+                    ? TalkRoutine("snus_return")
+                    : TalkRoutine("snus_reminder"));
+                break;
+            case QuestStage.FindGateKeys:
+                StartCoroutine(interactor != null && interactor.HasItemNamed("Ключи от ворот")
+                    ? TalkRoutine("keys_return")
+                    : TalkRoutine("keys_reminder"));
+                break;
+            case QuestStage.GoToCar:
+                StartCoroutine(TalkRoutine("go_away"));
+                break;
+        }
+    }
+
+    private IEnumerator TalkRoutine(string nodeId)
+    {
+        dialogBusy = true;
+        SequenceActive = true;
+        LockPlayer();
+        yield return FacePlayerToAnton();
+
+        BuildEncounterCanvas();
+        BuildDialogPanel();
+
+        yield return RunDialog(nodeId);
+
+        if (stage != QuestStage.Dead)
+        {
+            EndDialogUi();
+            SequenceActive = false;
+            UnlockPlayer();
+        }
+
+        dialogBusy = false;
+    }
+
+    // ------------------------------------------------------------------
+    // dialog tree
+    // ------------------------------------------------------------------
+
+    private class DialogChoice
+    {
+        public string Text;
+        public Func<bool> VisibleIf;
+        public Func<IEnumerator> Effect;
+        public string NextId;
+        public int TrustDelta;
+    }
+
+    private class DialogNode
+    {
+        public string Text;
+        public readonly List<DialogChoice> Choices = new List<DialogChoice>();
+        public string NextId;
+        public Func<IEnumerator> Effect;
+    }
+
+    private Dictionary<string, DialogNode> BuildDialogTree()
+    {
+        var nodes = new Dictionary<string, DialogNode>();
+        bool HasJameson() => interactor != null && interactor.HasItemNamed("Jameson");
+        bool HasSnus() => interactor != null && interactor.HasItemNamed("snus");
+
+        nodes["intro"] = new DialogNode
+        {
+            Text = "Стоять. Ты кто такой и что забыл на моей территории?.. Деньги есть? Или пивко?",
+            Choices =
+            {
+                new DialogChoice { Text = "Мужчина, денег нет", TrustDelta = -20, NextId = "angry" },
+                new DialogChoice
+                {
+                    Text = "Денег нет, но есть вискарь. Jameson. Будешь?",
+                    VisibleIf = HasJameson,
+                    TrustDelta = 40,
+                    Effect = () => GiveItemToAnton("Jameson"),
+                    NextId = "jameson"
+                },
+                new DialogChoice { Text = "Я просто хочу уйти. Могу чем-то помочь?", TrustDelta = 10, NextId = "tasks_intro" }
+            }
+        };
+
+        nodes["angry"] = new DialogNode
+        {
+            Text = "Денег нет?.. Плохо начинаешь, дружок. У меня тут люди пропадают. Последний шанс: чем ты мне полезен?",
+            Choices =
+            {
+                new DialogChoice { Text = "Ничем. Отойди от меня", TrustDelta = -40, NextId = "execution" },
+                new DialogChoice
+                {
+                    Text = "Стой-стой! Вот, вискарь. Jameson. Держи",
+                    VisibleIf = HasJameson,
+                    TrustDelta = 35,
+                    Effect = () => GiveItemToAnton("Jameson"),
+                    NextId = "jameson"
+                },
+                new DialogChoice { Text = "Могу сделать для тебя что-нибудь", TrustDelta = 15, NextId = "tasks_intro" }
+            }
+        };
+
+        nodes["jameson"] = new DialogNode
+        {
+            Text = "Оп-па... Джеймсончик! Уважаю. Сразу видно — человек культурный. Ладно, живи пока.",
+            NextId = "tasks_intro_friendly"
+        };
+
+        nodes["tasks_intro"] = new DialogNode
+        {
+            Text = "Слушай сюда. Видишь тачку у ворот? Моя. Хочешь свалить — заработай ключи. Сделаешь пару дел — отпущу. Накосячишь — закопаю за сараем.",
+            NextId = "task_snus"
+        };
+
+        nodes["tasks_intro_friendly"] = new DialogNode
+        {
+            Text = "Слушай. Тачка у ворот — моя. Подкину тебя до трассы, но сначала помоги по хозяйству. Я тут кое-что посеял.",
+            NextId = "task_snus"
+        };
+
+        nodes["task_snus"] = new DialogNode
+        {
+            Text = "Первое. Я где-то во дворе посеял снюс. Без него я злой, а тебе злой Антончик не нужен. Найди и принеси.",
+            Choices =
+            {
+                new DialogChoice
+                {
+                    Text = "Держи, у меня как раз есть снюс",
+                    VisibleIf = HasSnus,
+                    TrustDelta = 20,
+                    Effect = () => GiveItemToAnton("snus"),
+                    NextId = "snus_thanks_instant"
+                },
+                new DialogChoice { Text = "Хорошо, я поищу", NextId = "task_snus_go" }
+            }
+        };
+
+        nodes["task_snus_go"] = new DialogNode
+        {
+            Text = "Давай. И не вздумай бежать — у меня тут вся территория под присмотром. Кое-кто пострашнее меня по двору ползает.",
+            Effect = () => SetStageRoutine(QuestStage.FindSnus)
+        };
+
+        nodes["snus_thanks_instant"] = new DialogNode
+        {
+            Text = "Воо, красавчик! Запасливый. Половина дела сделана.",
+            NextId = "task_keys"
+        };
+
+        nodes["snus_reminder"] = new DialogNode
+        {
+            Text = "Где мой снюс? Без снюса не возвращайся."
+        };
+
+        nodes["snus_return"] = new DialogNode
+        {
+            Text = "Нашёл? Ну-ка дай сюда.",
+            Effect = () => GiveItemToAnton("snus"),
+            NextId = "snus_thanks"
+        };
+
+        nodes["snus_thanks"] = new DialogNode
+        {
+            Text = "Воо, красавчик. Сразу жить легче стало. Половина дела сделана.",
+            Effect = () => TrustRoutine(15),
+            NextId = "task_keys"
+        };
+
+        nodes["task_keys"] = new DialogNode
+        {
+            Text = "Теперь серьёзное. Я потерял ключи от ворот, когда от... неважно от кого бегал. Где-то у забора валяются. Найди — и поговорим о тачке.",
+            Choices =
+            {
+                new DialogChoice { Text = "Понял. У какого забора?", NextId = "task_keys_hint" },
+                new DialogChoice { Text = "Может, сам поищешь?", TrustDelta = -15, NextId = "task_keys_rude" }
+            }
+        };
+
+        nodes["task_keys_hint"] = new DialogNode
+        {
+            Text = "Если б я помнил у какого — сам бы сходил. Ищи вдоль сетки. И возьми ствол с ящика... по двору всякое шастает.",
+            Effect = () => SetStageRoutine(QuestStage.FindGateKeys)
+        };
+
+        nodes["task_keys_rude"] = new DialogNode
+        {
+            Text = "Чегоо? Ты мне условия ставишь? Ищи давай, пока я добрый.",
+            Effect = () => SetStageRoutine(QuestStage.FindGateKeys)
+        };
+
+        nodes["keys_reminder"] = new DialogNode
+        {
+            Text = "Ключи от ворот. У забора. Шевели ногами."
+        };
+
+        nodes["keys_return"] = new DialogNode
+        {
+            Text = "Ну ты жук, нашёл-таки. Дай сюда.",
+            Effect = () => GiveItemToAnton("Ключи от ворот"),
+            NextId = "keys_handover"
+        };
+
+        nodes["keys_handover"] = new DialogNode
+        {
+            Text = "Уговор есть уговор. Держи ключи от тачки. Бак почти пустой, до трассы дотянешь. Вали отсюда, пока я добрый.",
+            Effect = HandOverCarKeys,
+            NextId = "farewell"
+        };
+
+        nodes["farewell"] = new DialogNode
+        {
+            Text = trust >= 50
+                ? "И вот ещё что... ты нормальный мужик. Заезжай, если что. Снюс с тебя."
+                : "И не возвращайся. Второй раз я не такой добрый.",
+            Effect = AntonWalksAway
+        };
+
+        nodes["go_away"] = new DialogNode
+        {
+            Text = "Чего стоишь? Ключи у тебя. Тачка вон. Вали, не зли меня."
+        };
+
+        nodes["silence"] = new DialogNode
+        {
+            Text = "Ты чё молчишь?! Я с тобой разговариваю!"
+        };
+
+        nodes["execution"] = new DialogNode
+        {
+            Text = "Зря ты так. Очень зря.",
+            Effect = ExecutionRoutine
+        };
+
+        return nodes;
+    }
+
+    private IEnumerator RunDialog(string startId)
+    {
+        Dictionary<string, DialogNode> nodes = BuildDialogTree();
+        string currentId = startId;
+        choiceTimedOutOnce = false;
+
+        while (!string.IsNullOrEmpty(currentId) && nodes.TryGetValue(currentId, out DialogNode node))
+        {
+            // farewell text depends on final trust, so rebuild lazily
+            if (currentId == "farewell")
+            {
+                node.Text = trust >= 50
+                    ? "И вот ещё что... ты нормальный мужик. Заезжай, если что. Снюс с тебя."
+                    : "И не возвращайся. Второй раз я не такой добрый.";
+            }
+
+            yield return TypeDialogLine(node.Text);
+
+            if (node.Effect != null)
+            {
+                yield return node.Effect();
+                if (stage == QuestStage.Dead)
+                {
+                    yield break;
+                }
+            }
+
+            List<DialogChoice> visible = node.Choices.FindAll(choice => choice.VisibleIf == null || choice.VisibleIf());
+            if (visible.Count == 0)
+            {
+                yield return new WaitForSeconds(0.9f);
+                currentId = node.NextId;
+                continue;
+            }
+
+            yield return PresentChoices(visible);
+
+            if (chosenIndex < 0)
+            {
+                // silence: one warning, then a bullet
+                Trust(-15);
+                if (choiceTimedOutOnce)
+                {
+                    currentId = "execution";
+                    continue;
+                }
+
+                choiceTimedOutOnce = true;
+                yield return TypeDialogLine(nodes["silence"].Text);
+                yield return PresentChoices(visible);
+                if (chosenIndex < 0)
+                {
+                    currentId = "execution";
+                    continue;
+                }
+            }
+
+            DialogChoice picked = visible[chosenIndex];
+            Trust(picked.TrustDelta);
+
+            if (trust <= 0)
+            {
+                currentId = "execution";
+                continue;
+            }
+
+            if (picked.Effect != null)
+            {
+                yield return picked.Effect();
+                if (stage == QuestStage.Dead)
+                {
+                    yield break;
+                }
+            }
+
+            currentId = picked.NextId;
+        }
+    }
+
+    private void Trust(int delta)
+    {
+        trust = Mathf.Clamp(trust + delta, -100, 100);
+        UpdateRimLight();
+    }
+
+    private void UpdateRimLight()
+    {
+        if (rimLight == null)
+        {
+            return;
+        }
+
+        // the colder the trust, the redder the light behind him
+        float anger = Mathf.InverseLerp(40f, 0f, trust);
+        rimLight.color = Color.Lerp(new Color(0.55f, 0.65f, 1f), new Color(1f, 0.12f, 0.06f), anger);
+    }
+
+    private IEnumerator SetStageRoutine(QuestStage newStage)
+    {
+        // During the intro the anton interactable doesn't exist yet — defer
+        // the actual task start to BeginTasksPhase.
+        if (stage == QuestStage.IntroDialog)
+        {
+            pendingTaskStage = newStage;
+            yield break;
+        }
+
+        if (newStage == QuestStage.FindGateKeys)
+        {
+            StartGateKeysTask();
+        }
+        else if (newStage == QuestStage.FindSnus)
+        {
+            StartSnusTask();
+        }
+
+        yield break;
+    }
+
+    private IEnumerator TrustRoutine(int delta)
+    {
+        Trust(delta);
+        yield break;
+    }
+
+    // ------------------------------------------------------------------
+    // dialog effects
+    // ------------------------------------------------------------------
+
+    private IEnumerator GiveItemToAnton(string itemName)
+    {
+        if (interactor == null || puppeteer == null)
+        {
+            yield break;
+        }
+
+        PickupInteractable item = interactor.TakeItemNamed(itemName);
+        if (item == null)
+        {
+            yield break;
+        }
+
+        puppeteer.SetReceiving(true);
+        Transform hand = puppeteer.LeftHand;
+        Vector3 start = playerCamera != null
+            ? playerCamera.transform.position + playerCamera.transform.forward * 0.4f - Vector3.up * 0.15f
+            : item.transform.position;
+        item.transform.position = start;
+
+        for (float elapsed = 0f; elapsed < 0.8f; elapsed += Time.deltaTime)
+        {
+            float t = Mathf.SmoothStep(0f, 1f, elapsed / 0.8f);
+            item.transform.position = Vector3.Lerp(start, hand.position, t);
+            yield return null;
+        }
+
+        item.transform.SetParent(hand, true);
+        if (itemName == "Ключи от ворот")
+        {
+            uiAudioSource.PlayOneShot(HorrorAudio.KeyJingle(), 0.9f);
+        }
+
+        yield return new WaitForSeconds(0.5f);
+        puppeteer.SetReceiving(false);
+
+        // he pockets it
+        Destroy(item.gameObject, 0.4f);
+    }
+
+    private IEnumerator HandOverCarKeys()
+    {
+        uiAudioSource.PlayOneShot(HorrorAudio.KeyJingle(), 1f);
+        CarEscapeController.HasCarKeys = true;
+        stage = QuestStage.GoToCar;
+        TaskHud.SetObjective($"Сядь в <color={TaskHud.Highlight}>машину</color> и уезжай");
+        yield return new WaitForSeconds(0.4f);
+    }
+
+    private IEnumerator AntonWalksAway()
+    {
+        EndDialogUi();
+        SequenceActive = false;
+        UnlockPlayer();
+
+        if (antonTalk != null)
+        {
+            antonTalk.CanInteract = false;
+        }
+
+        scalapendraSpawner.Deactivate();
+
+        if (puppeteer != null)
+        {
+            GameObject gateObject = GameObject.Find("gate");
+            Vector3 destination = gateObject != null
+                ? gateObject.transform.position + Vector3.left * 6f
+                : antonInstance.transform.position - antonInstance.transform.forward * 15f;
+            yield return puppeteer.WalkAway(destination, 1.25f, walkClip);
+        }
+
+        if (antonInstance != null)
+        {
+            Destroy(antonInstance);
+        }
+    }
+
+    private IEnumerator ExecutionRoutine()
+    {
+        stage = QuestStage.Dead;
+        HideChoices();
+
+        if (puppeteer != null)
+        {
+            Transform aimTarget = playerCamera != null ? playerCamera.transform : playerTransform;
+            puppeteer.SetSpeaking(false);
+            puppeteer.BeginAiming(aimTarget, pistolPrefab);
+        }
+
+        yield return new WaitForSeconds(1.35f);
+
+        if (puppeteer != null)
+        {
+            puppeteer.Recoil();
+            FireMuzzleFlash(puppeteer.GunMuzzlePosition());
+        }
+
+        PlayUiSound(shotSound);
+        yield return ShowBloodFlash();
+
+        GameOverScreen.Show("Не надо было злить Антончика.");
+    }
+
+    // ------------------------------------------------------------------
+    // quest props
+    // ------------------------------------------------------------------
+
+    private void SpawnSnusInYard()
+    {
+        if (snusPrefab == null || snusInstance != null)
+        {
+            return;
+        }
+
+        Vector3 spot = PickHiddenSpot(new[] { "box", "chair", "trees2", "lamp.004", "trees1.001" });
+        snusInstance = Instantiate(snusPrefab, spot + Vector3.up * 0.05f, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f));
+        snusInstance.name = "snus";
+        BuiltinPipelineCompatibility.PatchSpawnedObject(snusInstance);
+        AddSearchGlow(snusInstance, new Color(0.35f, 0.8f, 0.4f, 1f));
+    }
+
+    private void SpawnGateKeys()
+    {
+        if (gateKeysInstance != null)
+        {
+            return;
+        }
+
+        Vector3 spot = PickHiddenSpot(new[] { "fence", "fence.001", "fence.002", "fence.003" });
+        gateKeysInstance = BuildKeysProp();
+        gateKeysInstance.transform.position = spot + Vector3.up * 0.08f;
+        AddSearchGlow(gateKeysInstance, new Color(0.95f, 0.75f, 0.25f, 1f));
+    }
+
+    private Vector3 PickHiddenSpot(string[] anchorNames)
+    {
+        string anchorName = anchorNames[UnityEngine.Random.Range(0, anchorNames.Length)];
+        GameObject anchor = GameObject.Find(anchorName);
+        Vector3 basePoint = anchor != null
+            ? anchor.transform.position
+            : (playerTransform != null ? playerTransform.position : Vector3.zero);
+
+        Vector2 jitter = UnityEngine.Random.insideUnitCircle * 2.5f;
+        Vector3 candidate = basePoint + new Vector3(jitter.x, 0f, jitter.y);
+        if (Physics.Raycast(candidate + Vector3.up * 8f, Vector3.down, out RaycastHit hit, 30f, ~0, QueryTriggerInteraction.Ignore))
+        {
+            return hit.point;
+        }
+
+        return candidate;
+    }
+
+    private static void AddSearchGlow(GameObject target, Color color)
+    {
+        GameObject glowObject = new GameObject("Search Glow");
+        glowObject.transform.SetParent(target.transform, false);
+        glowObject.transform.localPosition = Vector3.up * 0.25f;
+        Light glow = glowObject.AddComponent<Light>();
+        glow.type = LightType.Point;
+        glow.color = color;
+        glow.range = 2.2f;
+        glow.intensity = 1.1f;
+        glowObject.AddComponent<PulsingLight>();
+    }
+
+    private GameObject BuildKeysProp()
+    {
+        GameObject root = new GameObject("Ключи от ворот");
+
+        GameObject ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        ring.name = "Ring";
+        ring.transform.SetParent(root.transform, false);
+        ring.transform.localScale = new Vector3(0.09f, 0.006f, 0.09f);
+        TintPrimitive(ring, new Color(0.7f, 0.6f, 0.3f, 1f));
+
+        for (int i = 0; i < 2; i++)
+        {
+            GameObject key = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            key.name = "Key " + i;
+            key.transform.SetParent(root.transform, false);
+            key.transform.localPosition = new Vector3(0.04f + i * 0.015f, 0.004f, i * 0.02f);
+            key.transform.localRotation = Quaternion.Euler(0f, 25f + i * 40f, 0f);
+            key.transform.localScale = new Vector3(0.085f, 0.006f, 0.02f);
+            TintPrimitive(key, new Color(0.62f, 0.6f, 0.55f, 1f));
+        }
+
+        Rigidbody body = root.AddComponent<Rigidbody>();
+        body.mass = 0.2f;
+        root.AddComponent<PickupInteractable>();
+        return root;
+    }
+
+    private static void TintPrimitive(GameObject primitive, Color color)
+    {
+        Renderer renderer = primitive.GetComponent<Renderer>();
+        if (renderer == null)
+        {
+            return;
+        }
+
+        MaterialPropertyBlock block = new MaterialPropertyBlock();
+        block.SetColor("_BaseColor", color);
+        block.SetColor("_Color", color);
+        renderer.SetPropertyBlock(block);
+    }
+
+    // ------------------------------------------------------------------
+    // player / anton plumbing
+    // ------------------------------------------------------------------
 
     private void LockPlayer()
     {
+        if (playerWasLocked)
+        {
+            return;
+        }
+
+        playerWasLocked = true;
         if (playerController != null)
         {
             playerController.playerCanMove = false;
@@ -255,6 +1070,32 @@ public class AntonchikFenceEncounter : MonoBehaviour
             playerRigidbody.angularVelocity = Vector3.zero;
             playerRigidbody.isKinematic = true;
         }
+    }
+
+    private void UnlockPlayer()
+    {
+        if (!playerWasLocked)
+        {
+            return;
+        }
+
+        playerWasLocked = false;
+        if (playerRigidbody != null)
+        {
+            playerRigidbody.isKinematic = false;
+        }
+
+        if (playerController != null)
+        {
+            playerController.enabled = true;
+            playerController.playerCanMove = true;
+            playerController.cameraCanMove = true;
+            playerController.enableJump = true;
+            playerController.SetCrouchEnabled(true);
+        }
+
+        Cursor.visible = false;
+        Cursor.lockState = CursorLockMode.Locked;
     }
 
     private void SpawnAntonBehindPlayer()
@@ -292,8 +1133,24 @@ public class AntonchikFenceEncounter : MonoBehaviour
             }
         }
 
+        puppeteer = antonInstance.AddComponent<AntonchikPuppeteer>();
+        puppeteer.Initialise();
+
         CreateAntonRimLight(spawnPosition, backDirection);
         BuiltinPipelineCompatibility.PatchSpawnedObject(antonInstance);
+    }
+
+    private void EnsureAntonCollider()
+    {
+        if (antonInstance == null || antonInstance.GetComponentInChildren<Collider>() != null)
+        {
+            return;
+        }
+
+        CapsuleCollider capsule = antonInstance.AddComponent<CapsuleCollider>();
+        capsule.center = Vector3.up * 0.9f;
+        capsule.height = 1.8f;
+        capsule.radius = 0.35f;
     }
 
     private void CreateAntonRimLight(Vector3 antonPosition, Vector3 awayFromPlayer)
@@ -302,7 +1159,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
         rimObject.transform.SetParent(antonInstance.transform, true);
         rimObject.transform.position = antonPosition + awayFromPlayer * 1.4f + Vector3.up * 2.4f;
 
-        Light rimLight = rimObject.AddComponent<Light>();
+        rimLight = rimObject.AddComponent<Light>();
         rimLight.type = LightType.Point;
         rimLight.color = new Color(0.55f, 0.65f, 1f, 1f);
         rimLight.intensity = 2.2f;
@@ -376,8 +1233,33 @@ public class AntonchikFenceEncounter : MonoBehaviour
         }
     }
 
+    private IEnumerator FacePlayerToAnton()
+    {
+        yield return TurnPlayerTowardsAnton();
+
+        // anton also turns to the player
+        if (antonInstance != null && playerTransform != null)
+        {
+            Vector3 toPlayer = playerTransform.position - antonInstance.transform.position;
+            toPlayer.y = 0f;
+            if (toPlayer.sqrMagnitude > 0.01f)
+            {
+                antonInstance.transform.rotation = Quaternion.LookRotation(toPlayer.normalized, Vector3.up);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // dialog UI
+    // ------------------------------------------------------------------
+
     private void BuildEncounterCanvas()
     {
+        if (encounterCanvas != null)
+        {
+            return;
+        }
+
         GameObject canvasObject = new GameObject("Antonchik Encounter Canvas");
         encounterCanvas = canvasObject.AddComponent<Canvas>();
         encounterCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -399,13 +1281,19 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
     private void BuildDialogPanel()
     {
+        if (dialogRoot != null)
+        {
+            dialogRoot.SetActive(true);
+            return;
+        }
+
         dialogRoot = CreatePanel("Dialog Root", encounterCanvas.transform, Color.clear);
         RectTransform dialogRect = dialogRoot.GetComponent<RectTransform>();
         dialogRect.anchorMin = new Vector2(0f, 0f);
         dialogRect.anchorMax = new Vector2(1f, 0f);
         dialogRect.pivot = new Vector2(0.5f, 0f);
         dialogRect.anchoredPosition = Vector2.zero;
-        dialogRect.sizeDelta = new Vector2(0f, 320f);
+        dialogRect.sizeDelta = new Vector2(0f, 360f);
 
         GameObject backdrop = CreatePanel("Dialog Backdrop", dialogRoot.transform, new Color(0f, 0f, 0f, 0.86f));
         RectTransform backdropRect = backdrop.GetComponent<RectTransform>();
@@ -427,28 +1315,46 @@ public class AntonchikFenceEncounter : MonoBehaviour
         speakerRect.anchorMin = new Vector2(0f, 1f);
         speakerRect.anchorMax = new Vector2(0f, 1f);
         speakerRect.pivot = new Vector2(0f, 1f);
-        speakerRect.anchoredPosition = new Vector2(170f, -26f);
+        speakerRect.anchoredPosition = new Vector2(170f, -22f);
         speakerRect.sizeDelta = new Vector2(900f, 52f);
 
-        dialogLabel = CreateLabel("Dialog Label", dialogRoot.transform, string.Empty, 44, new Color(0.92f, 0.9f, 0.88f, 1f), TextAlignmentOptions.TopLeft);
+        dialogLabel = CreateLabel("Dialog Label", dialogRoot.transform, string.Empty, 38, new Color(0.92f, 0.9f, 0.88f, 1f), TextAlignmentOptions.TopLeft);
         RectTransform dialogLabelRect = dialogLabel.GetComponent<RectTransform>();
         dialogLabelRect.anchorMin = new Vector2(0f, 1f);
         dialogLabelRect.anchorMax = new Vector2(1f, 1f);
         dialogLabelRect.pivot = new Vector2(0f, 1f);
-        dialogLabelRect.anchoredPosition = new Vector2(170f, -88f);
-        dialogLabelRect.offsetMax = new Vector2(-170f, -88f);
-        dialogLabelRect.sizeDelta = new Vector2(-340f, 120f);
+        dialogLabelRect.anchoredPosition = new Vector2(170f, -80f);
+        dialogLabelRect.offsetMax = new Vector2(-170f, -80f);
+        dialogLabelRect.sizeDelta = new Vector2(-340f, 110f);
     }
 
-    private IEnumerator TypeDialogLine()
+    private void EndDialogUi()
     {
+        if (dialogRoot != null)
+        {
+            dialogRoot.SetActive(false);
+        }
+
+        HideChoices();
+        Cursor.visible = false;
+        Cursor.lockState = CursorLockMode.Locked;
+    }
+
+    private IEnumerator TypeDialogLine(string line)
+    {
+        HideChoices();
+        if (puppeteer != null)
+        {
+            puppeteer.SetSpeaking(true);
+        }
+
         float secondsPerLetter = 1f / Mathf.Max(1f, lettersPerSecond);
 
         dialogLabel.text = string.Empty;
-        for (int i = 0; i < dialogLine.Length; i++)
+        for (int i = 0; i < line.Length; i++)
         {
-            dialogLabel.text = dialogLine.Substring(0, i + 1);
-            if (!char.IsWhiteSpace(dialogLine[i]))
+            dialogLabel.text = line.Substring(0, i + 1);
+            if (!char.IsWhiteSpace(line[i]))
             {
                 PlayUiSound(typingSound);
             }
@@ -457,28 +1363,33 @@ public class AntonchikFenceEncounter : MonoBehaviour
         }
 
         PlayUiSound(lineFinishedSound);
+        if (puppeteer != null)
+        {
+            puppeteer.SetSpeaking(false);
+        }
     }
 
-    private IEnumerator ReplyPhase()
+    private IEnumerator PresentChoices(List<DialogChoice> choices)
     {
+        chosenIndex = -1;
         Cursor.visible = true;
         Cursor.lockState = CursorLockMode.None;
 
-        replyRoot = CreatePanel("Reply Root", dialogRoot.transform, Color.clear);
-        RectTransform replyRect = replyRoot.GetComponent<RectTransform>();
-        replyRect.anchorMin = new Vector2(0f, 0f);
-        replyRect.anchorMax = new Vector2(0f, 0f);
-        replyRect.pivot = new Vector2(0f, 0f);
-        replyRect.anchoredPosition = new Vector2(170f, 28f);
-        replyRect.sizeDelta = new Vector2(640f, 96f);
+        choicesRoot = CreatePanel("Choices Root", dialogRoot.transform, Color.clear);
+        RectTransform choicesRect = choicesRoot.GetComponent<RectTransform>();
+        choicesRect.anchorMin = new Vector2(0f, 0f);
+        choicesRect.anchorMax = new Vector2(0f, 0f);
+        choicesRect.pivot = new Vector2(0f, 0f);
+        choicesRect.anchoredPosition = new Vector2(170f, 18f);
+        choicesRect.sizeDelta = new Vector2(820f, 70f * choices.Count + 22f);
 
-        GameObject track = CreatePanel("Timer Track", replyRoot.transform, new Color(0.16f, 0.05f, 0.05f, 0.9f));
+        GameObject track = CreatePanel("Timer Track", choicesRoot.transform, new Color(0.16f, 0.05f, 0.05f, 0.9f));
         RectTransform trackRect = track.GetComponent<RectTransform>();
         trackRect.anchorMin = new Vector2(0f, 1f);
         trackRect.anchorMax = new Vector2(1f, 1f);
         trackRect.pivot = new Vector2(0f, 1f);
-        trackRect.anchoredPosition = new Vector2(0f, 18f);
-        trackRect.sizeDelta = new Vector2(0f, 10f);
+        trackRect.anchoredPosition = new Vector2(0f, 0f);
+        trackRect.sizeDelta = new Vector2(0f, 8f);
 
         GameObject fill = CreatePanel("Timer Fill", track.transform, new Color(0.78f, 0.05f, 0.04f, 1f));
         RectTransform fillRect = fill.GetComponent<RectTransform>();
@@ -489,170 +1400,76 @@ public class AntonchikFenceEncounter : MonoBehaviour
         fillRect.offsetMax = Vector2.zero;
         timerFill = fill.GetComponent<Image>();
 
-        GameObject buttonObject = CreatePanel("Reply Button", replyRoot.transform, new Color(0.07f, 0.07f, 0.08f, 0.95f));
-        RectTransform buttonRect = buttonObject.GetComponent<RectTransform>();
-        buttonRect.anchorMin = new Vector2(0f, 0f);
-        buttonRect.anchorMax = new Vector2(1f, 0f);
-        buttonRect.pivot = new Vector2(0f, 0f);
-        buttonRect.anchoredPosition = Vector2.zero;
-        buttonRect.sizeDelta = new Vector2(0f, 70f);
+        for (int i = 0; i < choices.Count; i++)
+        {
+            int index = i;
+            GameObject buttonObject = CreatePanel("Choice " + i, choicesRoot.transform, new Color(0.07f, 0.07f, 0.08f, 0.95f));
+            RectTransform buttonRect = buttonObject.GetComponent<RectTransform>();
+            buttonRect.anchorMin = new Vector2(0f, 0f);
+            buttonRect.anchorMax = new Vector2(1f, 0f);
+            buttonRect.pivot = new Vector2(0f, 0f);
+            buttonRect.anchoredPosition = new Vector2(0f, (choices.Count - 1 - i) * 70f);
+            buttonRect.sizeDelta = new Vector2(0f, 60f);
 
-        GameObject frame = CreatePanel("Reply Frame", buttonObject.transform, new Color(0.5f, 0.08f, 0.08f, 0.85f));
-        RectTransform frameRect = frame.GetComponent<RectTransform>();
-        frameRect.anchorMin = new Vector2(0f, 0f);
-        frameRect.anchorMax = new Vector2(0f, 1f);
-        frameRect.pivot = new Vector2(0f, 0.5f);
-        frameRect.anchoredPosition = Vector2.zero;
-        frameRect.sizeDelta = new Vector2(5f, 0f);
+            GameObject frame = CreatePanel("Choice Frame", buttonObject.transform, new Color(0.5f, 0.08f, 0.08f, 0.85f));
+            RectTransform frameRect = frame.GetComponent<RectTransform>();
+            frameRect.anchorMin = new Vector2(0f, 0f);
+            frameRect.anchorMax = new Vector2(0f, 1f);
+            frameRect.pivot = new Vector2(0f, 0.5f);
+            frameRect.anchoredPosition = Vector2.zero;
+            frameRect.sizeDelta = new Vector2(5f, 0f);
 
-        TextMeshProUGUI buttonLabel = CreateLabel("Reply Label", buttonObject.transform, "> " + replyText, 34, new Color(0.9f, 0.86f, 0.82f, 1f), TextAlignmentOptions.Left);
-        RectTransform buttonLabelRect = buttonLabel.GetComponent<RectTransform>();
-        buttonLabelRect.anchorMin = Vector2.zero;
-        buttonLabelRect.anchorMax = Vector2.one;
-        buttonLabelRect.offsetMin = new Vector2(26f, 0f);
-        buttonLabelRect.offsetMax = new Vector2(-12f, 0f);
-        buttonLabel.alignment = TextAlignmentOptions.MidlineLeft;
+            TextMeshProUGUI buttonLabel = CreateLabel("Choice Label", buttonObject.transform, "> " + choices[i].Text, 28, new Color(0.9f, 0.86f, 0.82f, 1f), TextAlignmentOptions.MidlineLeft);
+            RectTransform buttonLabelRect = buttonLabel.GetComponent<RectTransform>();
+            buttonLabelRect.anchorMin = Vector2.zero;
+            buttonLabelRect.anchorMax = Vector2.one;
+            buttonLabelRect.offsetMin = new Vector2(26f, 0f);
+            buttonLabelRect.offsetMax = new Vector2(-12f, 0f);
 
-        replied = false;
-        Button replyButton = buttonObject.AddComponent<Button>();
-        replyButton.targetGraphic = buttonObject.GetComponent<Image>();
-        ColorBlock colors = replyButton.colors;
-        colors.highlightedColor = new Color(1.6f, 1.2f, 1.2f, 1f);
-        colors.pressedColor = new Color(2f, 1.4f, 1.4f, 1f);
-        replyButton.colors = colors;
-        replyButton.onClick.AddListener(() => replied = true);
+            Button choiceButton = buttonObject.AddComponent<Button>();
+            choiceButton.targetGraphic = buttonObject.GetComponent<Image>();
+            ColorBlock colors = choiceButton.colors;
+            colors.highlightedColor = new Color(1.6f, 1.2f, 1.2f, 1f);
+            colors.pressedColor = new Color(2f, 1.4f, 1.4f, 1f);
+            choiceButton.colors = colors;
+            choiceButton.onClick.AddListener(() => chosenIndex = index);
+        }
 
         float remaining = replyTimeLimit;
-        while (!replied && remaining > 0f)
+        while (chosenIndex < 0 && remaining > 0f)
         {
             remaining -= Time.deltaTime;
             if (timerFill != null)
             {
-                RectTransform rect = timerFill.rectTransform;
-                rect.anchorMax = new Vector2(Mathf.Clamp01(remaining / replyTimeLimit), 1f);
+                timerFill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(remaining / replyTimeLimit), 1f);
             }
 
             yield return null;
         }
 
+        HideChoices();
         Cursor.visible = false;
         Cursor.lockState = CursorLockMode.Locked;
-        replyRoot.SetActive(false);
 
         if (dialogLabel != null)
         {
             dialogLabel.text = string.Empty;
         }
 
-        yield return new WaitForSeconds(0.6f);
+        yield return new WaitForSeconds(0.4f);
     }
 
-    private IEnumerator GunSequence()
+    private void HideChoices()
     {
-        if (dialogRoot != null)
+        if (choicesRoot != null)
         {
-            dialogRoot.SetActive(false);
-        }
-
-        Transform gunParent = ResolveGunHand();
-        Vector3 cameraPosition = playerCamera != null ? playerCamera.transform.position : playerTransform.position + Vector3.up * 1.5f;
-        Vector3 antonChest = antonInstance != null
-            ? antonInstance.transform.position + Vector3.up * 1.45f
-            : playerTransform.position - playerTransform.forward * 2f + Vector3.up * 1.45f;
-
-        if (pistolPrefab != null)
-        {
-            gunInstance = Instantiate(pistolPrefab);
-            StripGunComponents(gunInstance);
-            BuiltinPipelineCompatibility.PatchSpawnedObject(gunInstance);
-
-            Vector3 loweredPosition = gunParent.position + Vector3.down * 0.55f;
-            Vector3 aimPosition = Vector3.Lerp(cameraPosition, antonChest, 0.45f);
-
-            gunInstance.transform.position = loweredPosition;
-
-            for (float elapsed = 0f; elapsed < gunRaiseDuration; elapsed += Time.deltaTime)
-            {
-                float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / gunRaiseDuration));
-                gunInstance.transform.position = Vector3.Lerp(loweredPosition, aimPosition, t);
-                Vector3 toCamera = (cameraPosition - gunInstance.transform.position).normalized;
-                gunInstance.transform.rotation = Quaternion.Slerp(gunInstance.transform.rotation, Quaternion.LookRotation(toCamera, Vector3.up), t);
-                yield return null;
-            }
-
-            gunInstance.transform.position = aimPosition;
-            gunInstance.transform.rotation = Quaternion.LookRotation((cameraPosition - aimPosition).normalized, Vector3.up);
-        }
-
-        yield return new WaitForSeconds(0.35f);
-
-        FireMuzzleFlash();
-        PlayUiSound(shotSound);
-    }
-
-    private Transform ResolveGunHand()
-    {
-        if (antonInstance != null)
-        {
-            Animator animator = antonInstance.GetComponentInChildren<Animator>();
-            if (animator != null && animator.isHuman)
-            {
-                Transform hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
-                if (hand != null)
-                {
-                    return hand;
-                }
-            }
-
-            return antonInstance.transform;
-        }
-
-        return playerTransform;
-    }
-
-    private void StripGunComponents(GameObject gun)
-    {
-        foreach (MonoBehaviour behaviour in gun.GetComponentsInChildren<MonoBehaviour>(true))
-        {
-            behaviour.enabled = false;
-        }
-
-        foreach (Rigidbody body in gun.GetComponentsInChildren<Rigidbody>(true))
-        {
-            body.isKinematic = true;
-            body.detectCollisions = false;
-        }
-
-        foreach (Collider collider in gun.GetComponentsInChildren<Collider>(true))
-        {
-            collider.enabled = false;
-        }
-
-        foreach (AudioSource source in gun.GetComponentsInChildren<AudioSource>(true))
-        {
-            source.enabled = false;
+            Destroy(choicesRoot);
+            choicesRoot = null;
         }
     }
 
-    private void FireMuzzleFlash()
+    private void FireMuzzleFlash(Vector3 flashPosition)
     {
-        Transform muzzle = null;
-        if (gunInstance != null)
-        {
-            foreach (Transform child in gunInstance.GetComponentsInChildren<Transform>(true))
-            {
-                if (child.name == "muzzle")
-                {
-                    muzzle = child;
-                    break;
-                }
-            }
-        }
-
-        Vector3 flashPosition = muzzle != null
-            ? muzzle.position
-            : (gunInstance != null ? gunInstance.transform.position : playerTransform.position + Vector3.up * 1.5f);
-
         GameObject flashObject = new GameObject("Muzzle Flash");
         flashObject.transform.position = flashPosition;
         Light flashLight = flashObject.AddComponent<Light>();
@@ -671,115 +1488,16 @@ public class AntonchikFenceEncounter : MonoBehaviour
         Destroy(flashObject, 0.08f);
     }
 
-    private IEnumerator ShowDeathScreen()
+    private IEnumerator ShowBloodFlash()
     {
-        deathRoot = CreatePanel("You Died Screen", encounterCanvas.transform, Color.black);
-        RectTransform deathRect = deathRoot.GetComponent<RectTransform>();
-        deathRect.anchorMin = Vector2.zero;
-        deathRect.anchorMax = Vector2.one;
-        deathRect.offsetMin = Vector2.zero;
-        deathRect.offsetMax = Vector2.zero;
-
-        deathGroup = deathRoot.AddComponent<CanvasGroup>();
-        deathGroup.alpha = 0f;
-        deathGroup.blocksRaycasts = true;
-
         GameObject redFlash = CreatePanel("Blood Flash", encounterCanvas.transform, new Color(0.45f, 0f, 0f, 0.55f));
         RectTransform redFlashRect = redFlash.GetComponent<RectTransform>();
         redFlashRect.anchorMin = Vector2.zero;
         redFlashRect.anchorMax = Vector2.one;
         redFlashRect.offsetMin = Vector2.zero;
         redFlashRect.offsetMax = Vector2.zero;
-        Destroy(redFlash, 0.14f);
-
-        deathTitle = CreateLabel("You Died Title", deathRoot.transform, "YOU DIED", 132, new Color(0.55f, 0.02f, 0.02f, 1f), TextAlignmentOptions.Center);
-        RectTransform titleRect = deathTitle.GetComponent<RectTransform>();
-        titleRect.anchorMin = new Vector2(0.5f, 0.5f);
-        titleRect.anchorMax = new Vector2(0.5f, 0.5f);
-        titleRect.pivot = new Vector2(0.5f, 0.5f);
-        titleRect.anchoredPosition = new Vector2(0f, 70f);
-        titleRect.sizeDelta = new Vector2(1400f, 220f);
-        deathTitle.characterSpacing = 18f;
-
-        Button startOverButton = CreateDeathButton("Start Over Button", "Start Over", new Vector2(0f, -120f), RestartScene);
-        Button mainMenuButton = CreateDeathButton("Main Menu Button", "Main Menu", new Vector2(0f, -210f), GoToMainMenu);
-        CanvasGroup startOverGroup = startOverButton.gameObject.AddComponent<CanvasGroup>();
-        CanvasGroup mainMenuGroup = mainMenuButton.gameObject.AddComponent<CanvasGroup>();
-        startOverGroup.alpha = 0f;
-        mainMenuGroup.alpha = 0f;
-
-        const float fadeDuration = 1.7f;
-        Vector3 titleStartScale = Vector3.one * 0.88f;
-        for (float elapsed = 0f; elapsed < fadeDuration; elapsed += Time.unscaledDeltaTime)
-        {
-            float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / fadeDuration));
-            deathGroup.alpha = t;
-            deathTitle.transform.localScale = Vector3.Lerp(titleStartScale, Vector3.one, t);
-            yield return null;
-        }
-
-        deathGroup.alpha = 1f;
-        Cursor.visible = true;
-        Cursor.lockState = CursorLockMode.None;
-
-        const float buttonFadeDuration = 0.7f;
-        for (float elapsed = 0f; elapsed < buttonFadeDuration; elapsed += Time.unscaledDeltaTime)
-        {
-            float t = Mathf.Clamp01(elapsed / buttonFadeDuration);
-            startOverGroup.alpha = t;
-            mainMenuGroup.alpha = Mathf.Clamp01(t - 0.25f) / 0.75f;
-            yield return null;
-        }
-
-        startOverGroup.alpha = 1f;
-        mainMenuGroup.alpha = 1f;
-    }
-
-    private Button CreateDeathButton(string name, string text, Vector2 position, UnityEngine.Events.UnityAction action)
-    {
-        GameObject buttonObject = CreatePanel(name, deathRoot.transform, new Color(0.05f, 0.05f, 0.06f, 0.9f));
-        RectTransform rect = buttonObject.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = position;
-        rect.sizeDelta = new Vector2(420f, 72f);
-
-        GameObject frame = CreatePanel("Frame", buttonObject.transform, new Color(0.45f, 0.04f, 0.04f, 0.8f));
-        RectTransform frameRect = frame.GetComponent<RectTransform>();
-        frameRect.anchorMin = new Vector2(0f, 0f);
-        frameRect.anchorMax = new Vector2(1f, 0f);
-        frameRect.pivot = new Vector2(0.5f, 0f);
-        frameRect.anchoredPosition = Vector2.zero;
-        frameRect.sizeDelta = new Vector2(0f, 3f);
-
-        TextMeshProUGUI label = CreateLabel(name + " Label", buttonObject.transform, text, 36, new Color(0.85f, 0.8f, 0.78f, 1f), TextAlignmentOptions.Center);
-        RectTransform labelRect = label.GetComponent<RectTransform>();
-        labelRect.anchorMin = Vector2.zero;
-        labelRect.anchorMax = Vector2.one;
-        labelRect.offsetMin = Vector2.zero;
-        labelRect.offsetMax = Vector2.zero;
-
-        Button button = buttonObject.AddComponent<Button>();
-        button.targetGraphic = buttonObject.GetComponent<Image>();
-        ColorBlock colors = button.colors;
-        colors.highlightedColor = new Color(1.8f, 1.3f, 1.3f, 1f);
-        colors.pressedColor = new Color(2.2f, 1.5f, 1.5f, 1f);
-        button.colors = colors;
-        button.onClick.AddListener(action);
-        return button;
-    }
-
-    private void RestartScene()
-    {
-        Time.timeScale = 1f;
-        SceneLoadingScreen.Load(SceneManager.GetActiveScene().name);
-    }
-
-    private void GoToMainMenu()
-    {
-        Time.timeScale = 1f;
-        SceneLoadingScreen.Load("menu");
+        yield return new WaitForSeconds(0.14f);
+        Destroy(redFlash);
     }
 
     private void PlayUiSound(AudioClip clip)
@@ -811,6 +1529,29 @@ public class AntonchikFenceEncounter : MonoBehaviour
         label.alignment = alignment;
         label.raycastTarget = false;
         return label;
+    }
+}
+
+// soft pulsing helper for quest item glows
+public class PulsingLight : MonoBehaviour
+{
+    private Light glow;
+    private float baseIntensity;
+    private float seed;
+
+    private void Awake()
+    {
+        glow = GetComponent<Light>();
+        baseIntensity = glow != null ? glow.intensity : 1f;
+        seed = UnityEngine.Random.value * 10f;
+    }
+
+    private void Update()
+    {
+        if (glow != null)
+        {
+            glow.intensity = baseIntensity * (0.6f + Mathf.PingPong(Time.time * 0.9f + seed, 0.8f));
+        }
     }
 }
 
