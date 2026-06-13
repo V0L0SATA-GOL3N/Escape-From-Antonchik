@@ -33,8 +33,8 @@ public class MonitorYoutubeDesktop : MonoBehaviour
     [SerializeField] private Vector2 desktopSize = new Vector2(960f, 540f);
     [SerializeField] private float mouseSpeed = 28f;
     // HDRP emissive colour is in nits; the room is dark, so keep it modest
-    // or bloom blows the text out
-    [SerializeField] private float screenEmissionNits = 40f;
+    // or bloom blows the text/screen out
+    [SerializeField] private float screenEmissionNits = 15f;
 
     private const int UiLayer = 5;
     private const float TitleBarHeight = 30f;

@@ -51,6 +51,15 @@ public class ScalapendraSpawner : MonoBehaviour
 
     private void Awake()
     {
+        // Build-safe path: pull from the baked Resources library so the creatures
+        // still spawn in player builds (AssetDatabase below is editor-only).
+        YardAssetLibrary lib = YardAssetLibrary.Instance;
+        if (lib != null)
+        {
+            if (scalapendraPrefab == null) scalapendraPrefab = lib.scalapendraPrefab;
+            if (scalapendraController == null) scalapendraController = lib.scalapendraController;
+        }
+
 #if UNITY_EDITOR
         if (scalapendraPrefab == null)
         {
