@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0, g: 0, b: 0, a: 1}
+  m_IndirectSpecularColor: {r: 0.004999146, g: 0.008334567, b: 0.022503432, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -3093,16 +3093,16 @@ MonoBehaviour:
   maxRandomDelay: 5
   antonPrefab: {fileID: 4981461031927374033, guid: 32b23d46b5b64491fa8bb741c0c698a6, type: 3}
   idleClip: {fileID: -203655887218126122, guid: ec8995fd4590641478ba482808addbe5, type: 3}
+  walkClip: {fileID: 0}
   spawnDistance: 2.3
   turnDuration: 0.55
   speakerName: "\u0410\u041D\u0422\u041E\u041D\u0427\u0418\u041A"
-  dialogLine: do you have money... or beer
   lettersPerSecond: 14
-  replyText: "\u041C\u0443\u0436\u0447\u0438\u043D\u0430 \u0434\u0435\u043D\u0435\u0433
-    \u043D\u0435\u0442"
   replyTimeLimit: 8
   pistolPrefab: {fileID: 7872568251004129172, guid: 9d33d3a50f6ba4bbcab5a402df309b36, type: 3}
-  gunRaiseDuration: 0.8
+  magazinePrefab: {fileID: 0}
+  snusPrefab: {fileID: 0}
+  truckPrefab: {fileID: 0}
   jumpscareSound: {fileID: 0}
   typingSound: {fileID: 8300000, guid: 26620204ac23b426e8ad49b8c417953e, type: 3}
   lineFinishedSound: {fileID: 8300000, guid: 0c9b61ad28aa540fc8caf983eca37320, type: 3}

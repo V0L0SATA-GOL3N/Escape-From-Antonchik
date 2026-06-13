@@ -195,6 +195,23 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
     private void EnsureAssetsLoaded()
     {
+        // Build-safe path: pull from the baked Resources library (works in builds,
+        // where AssetDatabase below is compiled out).
+        YardAssetLibrary lib = YardAssetLibrary.Instance;
+        if (lib != null)
+        {
+            if (antonPrefab == null) antonPrefab = lib.antonPrefab;
+            if (pistolPrefab == null) pistolPrefab = lib.pistolPrefab;
+            if (magazinePrefab == null) magazinePrefab = lib.magazinePrefab;
+            if (snusPrefab == null) snusPrefab = lib.snusPrefab;
+            if (truckPrefab == null) truckPrefab = lib.truckPrefab;
+            if (idleClip == null) idleClip = lib.idleClip;
+            if (walkClip == null) walkClip = lib.walkClip;
+            if (typingSound == null) typingSound = lib.typingSound;
+            if (lineFinishedSound == null) lineFinishedSound = lib.lineFinishedSound;
+            if (shotSound == null) shotSound = lib.shotSound;
+        }
+
 #if UNITY_EDITOR
         if (antonPrefab == null)
         {

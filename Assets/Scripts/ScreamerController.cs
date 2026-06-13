@@ -31,6 +31,16 @@ public class ScreamerController : MonoBehaviour
 
     private void Awake()
     {
+        // Build-safe path: AssetDatabase below is editor-only.
+        if (figurePrefab == null)
+        {
+            YardAssetLibrary lib = YardAssetLibrary.Instance;
+            if (lib != null)
+            {
+                figurePrefab = lib.antonPrefab;
+            }
+        }
+
 #if UNITY_EDITOR
         if (figurePrefab == null)
         {

@@ -37,6 +37,17 @@ public class RadioController : SimpleInteractable
         speaker.minDistance = 1.2f;
         speaker.maxDistance = 25f;
 
+        // Build-safe path: the offline radio track must load in player builds too,
+        // otherwise the radio is silent (AssetDatabase below is editor-only).
+        if (fallbackTrack == null)
+        {
+            YardAssetLibrary lib = YardAssetLibrary.Instance;
+            if (lib != null)
+            {
+                fallbackTrack = lib.radioFallbackTrack;
+            }
+        }
+
 #if UNITY_EDITOR
         if (fallbackTrack == null)
         {

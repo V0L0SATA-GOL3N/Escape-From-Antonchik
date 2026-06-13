@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e2175e8044b7044e185d5113c3ed6bd1, type: 3}
+  m_Name: YardAssetLibrary
+  m_EditorClassIdentifier: 
+  antonPrefab: {fileID: 4981461031927374033, guid: 32b23d46b5b64491fa8bb741c0c698a6, type: 3}
+  pistolPrefab: {fileID: 7872568251004129172, guid: 9d33d3a50f6ba4bbcab5a402df309b36, type: 3}
+  magazinePrefab: {fileID: 6477222035872424010, guid: f689d69d1d12f423ebd071d48a3e8a5c, type: 3}
+  snusPrefab: {fileID: 8596405207757802334, guid: ece1c0a6b1e5d49a8b5b1bbc77c1e7d9, type: 3}
+  truckPrefab: {fileID: 1039041537112898, guid: 20d6170d440e52b438267a860798bb0a, type: 3}
+  idleClip: {fileID: -203655887218126122, guid: ec8995fd4590641478ba482808addbe5, type: 3}
+  walkClip: {fileID: -203655887218126122, guid: f4e25e4b0a0d247b0a468fd67abcf52c, type: 3}
+  typingSound: {fileID: 8300000, guid: 26620204ac23b426e8ad49b8c417953e, type: 3}
+  lineFinishedSound: {fileID: 8300000, guid: 0c9b61ad28aa540fc8caf983eca37320, type: 3}
+  shotSound: {fileID: 8300000, guid: 47b2a139877c649d4b90b0d9564e5051, type: 3}
+  radioFallbackTrack: {fileID: 8300000, guid: 8bf90cb58393643209087f391be7a78f, type: 3}
+  scalapendraPrefab: {fileID: 796104062660985984, guid: f2337f52368114c929fbd20605deea69, type: 3}
+  scalapendraController: {fileID: 9100000, guid: b966b124836c1402f8f36cb27feeeffe, type: 2}
+  nightSky: {fileID: 2100000, guid: 8ab1b4e0d21704e81b6cd763adaabef9, type: 2}
