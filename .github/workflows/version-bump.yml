@@ -1,0 +1,85 @@
+name: Bump Version & Build
+
+# Manual "bump version" button. Run it from the Actions tab:
+#   Actions -> Bump Version & Build -> Run workflow -> pick major / minor / patch.
+#
+# It bumps Unity's bundleVersion in ProjectSettings.asset, commits the change,
+# creates a v<version> tag, then triggers the cross-platform build + release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Which part of the version to increment'
+        required: true
+        default: patch
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    name: Bump version & tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump bundleVersion
+        id: bump
+        run: |
+          set -euo pipefail
+          SETTINGS=ProjectSettings/ProjectSettings.asset
+
+          CURRENT=$(grep -m1 -E '^\s*bundleVersion:' "$SETTINGS" | sed -E 's/.*bundleVersion:\s*//' | tr -d '\r')
+          echo "Current version: $CURRENT"
+
+          # Split into major.minor.patch, padding missing parts with 0.
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW="${MAJOR}.${MINOR}.${PATCH}"
+          echo "New version: $NEW"
+
+          # Replace the bundleVersion line in place.
+          sed -i -E "s/^(\s*bundleVersion:\s*).*/\1${NEW}/" "$SETTINGS"
+
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEW" >> "$GITHUB_OUTPUT"
+
+      - name: Commit, tag and push
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ProjectSettings/ProjectSettings.asset
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.version }}"
+          git tag "${{ steps.bump.outputs.tag }}"
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin "${{ steps.bump.outputs.tag }}"
+
+  build:
+    name: Build
+    needs: bump
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.bump.outputs.tag }}
+    secrets:
+      UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+      UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
