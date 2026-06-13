@@ -23,6 +23,9 @@ public class GunWeaponController : MonoBehaviour
     [SerializeField] private float recoilDistance = 0.035f;
     [SerializeField] private float recoilRotation = 5f;
     [SerializeField] private float slideKickDistance = 0.045f;
+    // Orientation of the gun when held in view (camera-local euler). Tunable
+    // because the model's forward axis isn't the camera's.
+    [SerializeField] private Vector3 heldViewEuler = new Vector3(0f, 90f, 0f);
 
     [Header("Reload")]
     [SerializeField] private KeyCode reloadKey = KeyCode.R;
@@ -189,18 +192,14 @@ public class GunWeaponController : MonoBehaviour
 
     private void CacheHeldPose()
     {
-        if (pickup != null && pickup.TryGetHeldPose(out Vector3 heldPosition, out Quaternion heldRotation))
-        {
-            baseLocalPosition = heldPosition;
-            baseLocalRotation = heldRotation;
-            transform.localPosition = baseLocalPosition;
-            transform.localRotation = baseLocalRotation;
-        }
-        else
-        {
-            baseLocalPosition = transform.localPosition;
-            baseLocalRotation = transform.localRotation;
-        }
+        // The prefab's authored held pose is broken for the current arms rig
+        // (the gun ends up ~16 m and ~4 m out in front), so derive a sane held
+        // pose from the camera every time it's equipped. Cache that as the rest
+        // pose so recoil settles back to it correctly.
+        NormalizeHeldPose();
+
+        baseLocalPosition = transform.localPosition;
+        baseLocalRotation = transform.localRotation;
 
         if (slide != null)
         {
@@ -208,6 +207,45 @@ public class GunWeaponController : MonoBehaviour
         }
 
         heldPoseCached = true;
+    }
+
+    // The prefab's authored held pose is broken for the current arms rig (the
+    // gun ends up ~16 m and several metres out). Rescale it to a believable hand
+    // size and sit it on the hold point so it sticks to the hand and bobs with
+    // it naturally instead of floating in front of the camera.
+    private void NormalizeHeldPose()
+    {
+        Camera cam = shootCamera != null ? shootCamera : Camera.main;
+        if (cam == null)
+        {
+            return;
+        }
+
+        // Parent to the camera so the gun is steady in view (the arms rig's wrist
+        // is non-uniformly scaled, which both warps and violently bobs anything
+        // parented to it). Uniform scale keeps the model undistorted.
+        transform.SetParent(cam.transform, true);
+        transform.localScale = Vector3.one;
+
+        Renderer[] renderers = GetComponentsInChildren<Renderer>();
+        if (renderers.Length > 0)
+        {
+            Bounds bounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+            {
+                bounds.Encapsulate(renderers[i].bounds);
+            }
+
+            float maxDim = Mathf.Max(bounds.size.x, Mathf.Max(bounds.size.y, bounds.size.z));
+            if (maxDim > 0.0001f)
+            {
+                transform.localScale = Vector3.one * (0.22f / maxDim);
+            }
+        }
+
+        // fixed offset in view: slightly right, down and forward of the camera
+        transform.localPosition = new Vector3(0.17f, -0.15f, 0.34f);
+        transform.localRotation = Quaternion.Euler(heldViewEuler);
     }
 
     private void TryReload()
@@ -244,6 +282,16 @@ public class GunWeaponController : MonoBehaviour
     public bool CanAddMagazine()
     {
         return carriedMagazines < maxCarriedMagazines;
+    }
+
+    // Cheat: full mag + 99 spares.
+    public void CheatStockUp()
+    {
+        maxCarriedMagazines = Mathf.Max(maxCarriedMagazines, 99);
+        carriedMagazines = 99;
+        ammoInMagazine = magazineSize;
+        UpdateHud(true);
+        ShowMagazineLabel();
     }
 
     private void PlayEmptyGunFeedback()

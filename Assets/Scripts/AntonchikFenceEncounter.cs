@@ -98,6 +98,14 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
     public static bool SequenceActive { get; private set; }
 
+    // One-line quest summary for the cheat "stats" overlay.
+    public string CheatStatusLine()
+    {
+        int bugs = scalapendraSpawner != null ? scalapendraSpawner.AliveCount : 0;
+        string keys = CarEscapeController.HasCarKeys ? "yes" : "no";
+        return $"Quest: {stage}  Trust: {trust}  CarKeys: {keys}  Scalapendras: {bugs}";
+    }
+
     private void Start()
     {
         SequenceActive = false;
@@ -416,11 +424,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
         UnlockPlayer();
         scalapendraSpawner.Activate();
 
-        antonTalk = antonInstance.AddComponent<SimpleInteractable>();
-        antonTalk.Prompt = "Press E to talk to Antonchik";
-        antonTalk.SetInteractionDistance(4f);
-        antonTalk.Interacted += OnTalkToAnton;
-        EnsureAntonCollider();
+        WireAntonInteraction();
 
         if (pendingTaskStage == QuestStage.FindGateKeys)
         {
@@ -430,6 +434,100 @@ public class AntonchikFenceEncounter : MonoBehaviour
         {
             StartSnusTask();
         }
+    }
+
+    private void WireAntonInteraction()
+    {
+        if (antonInstance == null)
+        {
+            return;
+        }
+
+        if (antonTalk == null)
+        {
+            antonTalk = antonInstance.AddComponent<SimpleInteractable>();
+            antonTalk.Prompt = "Press E to talk to Antonchik";
+            antonTalk.SetInteractionDistance(4f);
+            antonTalk.Interacted += OnTalkToAnton;
+        }
+
+        antonTalk.CanInteract = true;
+        EnsureAntonCollider();
+    }
+
+    // ------------------------------------------------------------------
+    // cheat codes — jump straight to a quest stage ("task1"/"task2"/...)
+    // ------------------------------------------------------------------
+
+    public void CheatJumpToTask(int task)
+    {
+        if (playerTransform == null)
+        {
+            ResolveSceneReferences();
+        }
+
+        StopAllCoroutines();
+        StartCoroutine(CheatJumpRoutine(task));
+    }
+
+    private IEnumerator CheatJumpRoutine(int task)
+    {
+        SequenceActive = false;
+        dialogBusy = false;
+        encounterStarted = true;
+        armed = false;
+        EndDialogUi();
+        UnlockPlayer();
+
+        if (antonInstance == null)
+        {
+            // spawn him right in front so the cheat is immediately usable
+            Vector3 inFront = playerTransform != null ? playerTransform.forward : Vector3.forward;
+            SpawnAntonInDirection(inFront);
+        }
+
+        if (scalapendraSpawner != null)
+        {
+            scalapendraSpawner.Activate();
+        }
+
+        WireAntonInteraction();
+
+        // clear any props from a previous run so the jump is clean
+        if (snusInstance != null)
+        {
+            Destroy(snusInstance);
+            snusInstance = null;
+        }
+
+        if (gateKeysInstance != null)
+        {
+            Destroy(gateKeysInstance);
+            gateKeysInstance = null;
+        }
+
+        switch (task)
+        {
+            case 1:
+                CarEscapeController.HasCarKeys = false;
+                StartSnusTask();
+                break;
+            case 2:
+                CarEscapeController.HasCarKeys = false;
+                StartGateKeysTask();
+                break;
+            case 3:
+                stage = QuestStage.GoToCar;
+                CarEscapeController.HasCarKeys = true;
+                TaskHud.SetObjective($"Сядь в <color={TaskHud.Highlight}>машину</color> и уезжай");
+                break;
+            default:
+                CarEscapeController.HasCarKeys = false;
+                StartSnusTask();
+                break;
+        }
+
+        yield break;
     }
 
     private void StartSnusTask()
@@ -952,9 +1050,10 @@ public class AntonchikFenceEncounter : MonoBehaviour
         }
 
         Vector3 spot = PickHiddenSpot(new[] { "box", "chair", "trees2", "lamp.004", "trees1.001" });
-        snusInstance = Instantiate(snusPrefab, spot + Vector3.up * 0.05f, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f));
+        snusInstance = Instantiate(snusPrefab, spot, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f));
         snusInstance.name = "snus";
         BuiltinPipelineCompatibility.PatchSpawnedObject(snusInstance);
+        RestOnGround(snusInstance, spot.y, 0.05f);
         AddSearchGlow(snusInstance, new Color(0.35f, 0.8f, 0.4f, 1f));
     }
 
@@ -987,6 +1086,26 @@ public class AntonchikFenceEncounter : MonoBehaviour
         }
 
         return candidate;
+    }
+
+    // Lifts a freshly spawned prop so its lowest visible point sits just above
+    // the ground instead of being half-buried by a centred mesh pivot.
+    private static void RestOnGround(GameObject obj, float groundY, float clearance)
+    {
+        Renderer[] renderers = obj.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length == 0)
+        {
+            return;
+        }
+
+        Bounds bounds = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+        {
+            bounds.Encapsulate(renderers[i].bounds);
+        }
+
+        float lift = (groundY + clearance) - bounds.min.y;
+        obj.transform.position += Vector3.up * lift;
     }
 
     private static void AddSearchGlow(GameObject target, Color color)
@@ -1100,12 +1219,22 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
     private void SpawnAntonBehindPlayer()
     {
+        if (playerTransform == null)
+        {
+            return;
+        }
+
+        SpawnAntonInDirection(-playerTransform.forward);
+    }
+
+    private void SpawnAntonInDirection(Vector3 dirFromPlayer)
+    {
         if (antonPrefab == null || playerTransform == null)
         {
             return;
         }
 
-        Vector3 backDirection = -playerTransform.forward;
+        Vector3 backDirection = dirFromPlayer;
         backDirection.y = 0f;
         backDirection.Normalize();
 
@@ -1148,9 +1277,30 @@ public class AntonchikFenceEncounter : MonoBehaviour
         }
 
         CapsuleCollider capsule = antonInstance.AddComponent<CapsuleCollider>();
-        capsule.center = Vector3.up * 0.9f;
-        capsule.height = 1.8f;
-        capsule.radius = 0.35f;
+
+        // Fit the capsule to the visible mesh so the talk raycast lands on his
+        // body regardless of the prefab's scale; fall back to human dimensions.
+        Renderer[] renderers = antonInstance.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length > 0)
+        {
+            Bounds bounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+            {
+                bounds.Encapsulate(renderers[i].bounds);
+            }
+
+            float height = bounds.size.y;
+            capsule.height = height;
+            capsule.radius = Mathf.Max(bounds.size.x, bounds.size.z) * 0.5f;
+            capsule.center = antonInstance.transform.InverseTransformPoint(
+                new Vector3(bounds.center.x, bounds.min.y + height * 0.5f, bounds.center.z));
+        }
+        else
+        {
+            capsule.center = Vector3.up * 0.9f;
+            capsule.height = 1.8f;
+            capsule.radius = 0.35f;
+        }
     }
 
     private void CreateAntonRimLight(Vector3 antonPosition, Vector3 awayFromPlayer)

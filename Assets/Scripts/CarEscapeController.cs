@@ -47,6 +47,18 @@ public class CarEscapeController : SimpleInteractable
 
     private void EnsureCollider()
     {
+        // The truck is moved by hand during the escape cutscene, so it needs a
+        // kinematic body rather than a free-falling one.
+        Rigidbody body = GetComponent<Rigidbody>();
+        if (body == null)
+        {
+            body = gameObject.AddComponent<Rigidbody>();
+        }
+
+        body.isKinematic = true;
+        body.useGravity = false;
+        body.interpolation = RigidbodyInterpolation.Interpolate;
+
         if (GetComponentInChildren<Collider>() != null)
         {
             return;

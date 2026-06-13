@@ -147,8 +147,9 @@ public class RadioController : SimpleInteractable
         streamPlayer.errorReceived += (_, message) => failed = true;
         streamPlayer.prepareCompleted += _ => prepared = true;
 
-        streamPlayer.EnableAudioTrack(0, true);
-        streamPlayer.SetTargetAudioSource(0, speaker);
+        // Audio track count is only known once the URL is prepared, so enabling
+        // and routing the track has to wait until after Prepare() completes —
+        // doing it beforehand silently no-ops and we'd "succeed" into silence.
         streamPlayer.Prepare();
 
         float waited = 0f;
@@ -158,17 +159,35 @@ public class RadioController : SimpleInteractable
             yield return null;
         }
 
-        if (prepared && !failed)
-        {
-            speaker.volume = 0.9f;
-            streamPlayer.Play();
-            onDone(true);
-        }
-        else
+        if (!prepared || failed || streamPlayer.audioTrackCount == 0)
         {
             streamPlayer.Stop();
             onDone(false);
+            yield break;
         }
+
+        streamPlayer.EnableAudioTrack(0, true);
+        streamPlayer.SetTargetAudioSource(0, speaker);
+        speaker.volume = 0.9f;
+        streamPlayer.Play();
+
+        // Give playback a beat to actually spin up; if it stalls, drop to the
+        // local fallback track instead of leaving the radio mute.
+        float settle = 0f;
+        while (settle < 1.5f && !failed)
+        {
+            if (streamPlayer.isPlaying)
+            {
+                onDone(true);
+                yield break;
+            }
+
+            settle += Time.deltaTime;
+            yield return null;
+        }
+
+        streamPlayer.Stop();
+        onDone(false);
     }
 
     private void StopAllPlayback()
