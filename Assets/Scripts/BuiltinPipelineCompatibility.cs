@@ -24,6 +24,7 @@ public static class BuiltinPipelineCompatibility
     private static readonly List<RendererState> patchedRenderers = new List<RendererState>();
     private static readonly List<LightState> patchedLights = new List<LightState>();
     private static readonly Dictionary<Material, Material> conversionCache = new Dictionary<Material, Material>();
+    private static readonly Dictionary<Material, Material> hdrpConversionCache = new Dictionary<Material, Material>();
     private static bool sceneHookInstalled;
     private static bool patched;
 
@@ -88,15 +89,134 @@ public static class BuiltinPipelineCompatibility
 
     public static void PatchSpawnedObject(GameObject root)
     {
-        if (GraphicsSettings.currentRenderPipeline != null || root == null)
+        if (root == null)
         {
             return;
         }
 
+        if (GraphicsSettings.currentRenderPipeline == null)
+        {
+            foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            {
+                PatchRenderer(renderer);
+            }
+
+            return;
+        }
+
+        // HDRP is active. Props authored with the built-in Standard shader (the
+        // pickup truck, etc.) render as magenta here, so swap their materials
+        // for HDRP/Lit equivalents that keep the albedo + normal maps.
         foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
         {
-            PatchRenderer(renderer);
+            ConvertRendererToHdrp(renderer);
         }
+    }
+
+    private static void ConvertRendererToHdrp(Renderer renderer)
+    {
+        Material[] materials = renderer.sharedMaterials;
+        bool changed = false;
+        Material[] replacement = new Material[materials.Length];
+
+        for (int i = 0; i < materials.Length; i++)
+        {
+            replacement[i] = materials[i];
+            Material converted = ConvertMaterialToHdrp(materials[i]);
+            if (converted != null)
+            {
+                replacement[i] = converted;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            renderer.sharedMaterials = replacement;
+        }
+    }
+
+    private static Material ConvertMaterialToHdrp(Material source)
+    {
+        if (source == null || source.shader == null)
+        {
+            return null;
+        }
+
+        string shaderName = source.shader.name;
+        bool isBuiltinLit = shaderName == "Standard"
+            || shaderName == "Standard (Specular setup)"
+            || shaderName == "Autodesk Interactive"
+            || shaderName.StartsWith("Legacy Shaders/")
+            || shaderName.StartsWith("Mobile/")
+            || shaderName == "Hidden/InternalErrorShader";
+
+        if (!isBuiltinLit)
+        {
+            return null;
+        }
+
+        if (hdrpConversionCache.TryGetValue(source, out Material cached) && cached != null)
+        {
+            return cached;
+        }
+
+        Shader hdrpLit = Shader.Find("HDRP/Lit");
+        if (hdrpLit == null)
+        {
+            return null;
+        }
+
+        Material converted = new Material(hdrpLit) { name = source.name + " (HDRP)" };
+
+        Texture albedo = FindTexture(source, "_MainTex", "_BaseMap", "_BaseColorMap");
+        if (albedo != null && converted.HasProperty("_BaseColorMap"))
+        {
+            converted.SetTexture("_BaseColorMap", albedo);
+        }
+
+        converted.SetColor("_BaseColor", FindColor(source, "_Color", "_BaseColor"));
+
+        Texture normal = FindTexture(source, "_BumpMap", "_NormalMap");
+        if (normal != null && converted.HasProperty("_NormalMap"))
+        {
+            converted.SetTexture("_NormalMap", normal);
+            converted.EnableKeyword("_NORMALMAP");
+            if (source.HasProperty("_BumpScale") && converted.HasProperty("_NormalScale"))
+            {
+                converted.SetFloat("_NormalScale", source.GetFloat("_BumpScale"));
+            }
+        }
+
+        if (source.HasProperty("_Metallic") && converted.HasProperty("_Metallic"))
+        {
+            converted.SetFloat("_Metallic", source.GetFloat("_Metallic"));
+        }
+
+        if (converted.HasProperty("_Smoothness"))
+        {
+            if (source.HasProperty("_Glossiness"))
+            {
+                converted.SetFloat("_Smoothness", source.GetFloat("_Glossiness"));
+            }
+            else if (source.HasProperty("_Smoothness"))
+            {
+                converted.SetFloat("_Smoothness", source.GetFloat("_Smoothness"));
+            }
+        }
+
+        try
+        {
+            UnityEngine.Rendering.HighDefinition.HDMaterial.ValidateMaterial(converted);
+        }
+        catch
+        {
+            // validation helper unavailable; the material still renders with the
+            // properties set above.
+        }
+
+        hdrpConversionCache[source] = converted;
+        return converted;
     }
 
     private static void RestoreScene()

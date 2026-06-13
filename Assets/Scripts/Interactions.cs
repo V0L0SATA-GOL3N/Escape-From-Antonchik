@@ -957,6 +957,24 @@ public class DoorRaycastInteractor : MonoBehaviour
         return true;
     }
 
+    // Cheat helper: force an item straight into the active hand slot, dropping
+    // whatever is there so it's actually equipped (and correctly posed/scaled)
+    // instead of left floating in the world.
+    public bool ForceEquipItem(PickupInteractable item)
+    {
+        if (item == null)
+        {
+            return false;
+        }
+
+        if (inventorySlots[activeSlotIndex] != null)
+        {
+            DropActiveSlot();
+        }
+
+        return GiveItem(item);
+    }
+
     private int FindSlotByName(string cleanName)
     {
         for (int i = 0; i < inventorySlots.Length; i++)

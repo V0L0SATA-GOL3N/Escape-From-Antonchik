@@ -1,3 +1,4 @@
+using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -30,6 +31,9 @@ public class CheatCodeController : MonoBehaviour
     private int ignoreTypingUntilFrame = -1;
     private string currentCode = string.Empty;
     private bool noclipEnabled;
+    private bool statsEnabled;
+    private float smoothedFps;
+    private GUIStyle statsStyle;
     private bool previousPlayerCanMove;
     private bool previousJumpEnabled;
     private bool previousCrouchEnabled;
@@ -78,6 +82,12 @@ public class CheatCodeController : MonoBehaviour
         if (firstPersonController == null)
         {
             ResolvePlayerReferences();
+        }
+
+        float dt = Time.unscaledDeltaTime;
+        if (dt > 0f)
+        {
+            smoothedFps = Mathf.Lerp(smoothedFps, 1f / dt, 0.1f);
         }
 
         HandleEntryKeys();
@@ -183,6 +193,106 @@ public class CheatCodeController : MonoBehaviour
             case "continuegamescene":
                 LoadCheatScene(scene3Name);
                 break;
+            case "task1":
+            case "snus":
+                JumpToTask(1);
+                break;
+            case "task2":
+            case "keys":
+                JumpToTask(2);
+                break;
+            case "task3":
+            case "car":
+                JumpToTask(3);
+                break;
+            case "stats":
+            case "fps":
+                statsEnabled = !statsEnabled;
+                break;
+            case "gun":
+            case "ammo":
+                GiveGunCheat();
+                break;
+        }
+    }
+
+    private void GiveGunCheat()
+    {
+        DoorRaycastInteractor interactor = FindObjectOfType<DoorRaycastInteractor>();
+
+        // prefer a gun already in hand, then any pistol in the scene, else spawn one
+        GunWeaponController gun = null;
+        foreach (GunWeaponController candidate in FindObjectsOfType<GunWeaponController>())
+        {
+            PickupInteractable candidatePickup = candidate.GetComponent<PickupInteractable>();
+            if (candidatePickup != null && candidatePickup.IsHeld)
+            {
+                gun = candidate;
+                break;
+            }
+
+            if (gun == null)
+            {
+                gun = candidate;
+            }
+        }
+
+        if (gun == null)
+        {
+            gun = SpawnCheatPistol();
+        }
+
+        if (gun == null)
+        {
+            return;
+        }
+
+        PickupInteractable pickup = gun.GetComponent<PickupInteractable>();
+        if (interactor != null && pickup != null && !pickup.IsHeld)
+        {
+            // force it into the hand (drops whatever is held) so it's equipped
+            // rather than floating in the world
+            interactor.ForceEquipItem(pickup);
+        }
+
+        gun.CheatStockUp();
+        // GunWeaponController.NormalizeHeldPose() handles sizing/placement on
+        // equip, so no extra posing is needed here.
+    }
+
+    // Editor/debug entry point for the gun cheat.
+    public void DebugGiveGun()
+    {
+        GiveGunCheat();
+    }
+
+    private GunWeaponController SpawnCheatPistol()
+    {
+#if UNITY_EDITOR
+        GameObject prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Pistol_00.prefab");
+        if (prefab == null)
+        {
+            return null;
+        }
+
+        Vector3 position = firstPersonController != null
+            ? firstPersonController.transform.position + Vector3.up
+            : Vector3.zero;
+        GameObject gunObject = Instantiate(prefab, position, Quaternion.identity);
+        gunObject.name = "Pistol_00";
+        BuiltinPipelineCompatibility.PatchSpawnedObject(gunObject);
+        return gunObject.GetComponent<GunWeaponController>();
+#else
+        return null;
+#endif
+    }
+
+    private void JumpToTask(int task)
+    {
+        AntonchikFenceEncounter encounter = FindObjectOfType<AntonchikFenceEncounter>();
+        if (encounter != null)
+        {
+            encounter.CheatJumpToTask(task);
         }
     }
 
@@ -330,6 +440,12 @@ public class CheatCodeController : MonoBehaviour
 
     private void OnGUI()
     {
+        DrawCheatBox();
+        DrawStatsOverlay();
+    }
+
+    private void DrawCheatBox()
+    {
         if (!isEnteringCode && !noclipEnabled)
         {
             return;
@@ -345,5 +461,62 @@ public class CheatCodeController : MonoBehaviour
         }
 
         GUI.Label(new Rect(28f, 24f, 300f, 20f), "NOCLIP ENABLED");
+    }
+
+    private void DrawStatsOverlay()
+    {
+        if (!statsEnabled)
+        {
+            return;
+        }
+
+        if (statsStyle == null)
+        {
+            statsStyle = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.UpperLeft,
+                fontSize = 13,
+                padding = new RectOffset(10, 10, 8, 8),
+                richText = false
+            };
+            statsStyle.normal.textColor = Color.white;
+        }
+
+        const float width = 380f;
+        GUI.Box(new Rect(Screen.width - width - 16f, 16f, width, 168f), BuildStats(), statsStyle);
+    }
+
+    private string BuildStats()
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.AppendLine("=== STATS (type \"stats\" to hide) ===");
+        sb.AppendLine($"FPS: {smoothedFps:0}");
+        sb.AppendLine($"Graphics: {GraphicsModeName()}");
+        sb.AppendLine($"Scene: {SceneManager.GetActiveScene().name}");
+        sb.AppendLine($"Noclip: {(noclipEnabled ? "ON" : "off")}");
+
+        if (firstPersonController != null)
+        {
+            Vector3 p = firstPersonController.transform.position;
+            sb.AppendLine($"Pos: {p.x:0.0}, {p.y:0.0}, {p.z:0.0}");
+        }
+
+        AntonchikFenceEncounter encounter = FindObjectOfType<AntonchikFenceEncounter>();
+        if (encounter != null)
+        {
+            sb.AppendLine(encounter.CheatStatusLine());
+        }
+
+        return sb.ToString();
+    }
+
+    private static string GraphicsModeName()
+    {
+        switch (GraphicsQualityManager.Mode)
+        {
+            case GraphicsQualityManager.UltraLowMode: return "Ultra Low (built-in)";
+            case GraphicsQualityManager.LowMode: return "Low (HDRP)";
+            default: return "High (HDRP)";
+        }
     }
 }
