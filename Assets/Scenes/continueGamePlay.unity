@@ -1738,6 +1738,10 @@ PrefabInstance:
       propertyPath: m_ConstrainProportionsScale
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 1546890741069285763, guid: 03303609fb7984984bee9e3c173904c3, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 1546890741069285767, guid: 03303609fb7984984bee9e3c173904c3, type: 3}
       propertyPath: walkSpeed
       value: 4.06
@@ -3231,6 +3235,7 @@ MonoBehaviour:
   cutsceneTypingSound: {fileID: 8300000, guid: 26620204ac23b426e8ad49b8c417953e, type: 3}
   cutsceneFinishSound: {fileID: 8300000, guid: 0c9b61ad28aa540fc8caf983eca37320, type: 3}
   cutsceneContinueText: Press any button to continue
+  cursor: {fileID: 0}
 --- !u!1 &1389270256
 GameObject:
   m_ObjectHideFlags: 0
