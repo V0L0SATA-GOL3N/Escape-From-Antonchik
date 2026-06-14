@@ -1232,6 +1232,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         Cursor.visible = false;
         Cursor.lockState = CursorLockMode.Locked;
+        SoftwareCursor.Show(false);
     }
 
     private void SpawnAntonBehindPlayer()
@@ -1246,19 +1247,60 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
     private void SpawnAntonInDirection(Vector3 dirFromPlayer)
     {
-        if (antonPrefab == null || playerTransform == null)
-        {
-            return;
-        }
+if (antonPrefab == null || playerTransform == null)
+{
+    return;
+}
 
-        Vector3 backDirection = dirFromPlayer;
-        backDirection.y = 0f;
-        backDirection.Normalize();
+Vector3 backDirection = dirFromPlayer;
+backDirection.y = 0f;
+backDirection.Normalize();
 
-        Vector3 spawnPosition = playerTransform.position + backDirection * spawnDistance;
-        spawnPosition.y = SampleGroundHeight(spawnPosition);
+// spawn in front/behind player
+Vector3 spawnPosition = playerTransform.position + backDirection * spawnDistance;
 
-        antonInstance = Instantiate(antonPrefab, spawnPosition, Quaternion.LookRotation(-backDirection, Vector3.up));
+// start ray high above spawn point
+Vector3 rayOrigin = spawnPosition + Vector3.up * 10f;
+
+RaycastHit hit;
+
+if (Physics.Raycast(rayOrigin, Vector3.down, out hit, 100f))
+{
+    spawnPosition = hit.point;
+
+    antonInstance = Instantiate(
+        antonPrefab,
+        spawnPosition,
+        Quaternion.LookRotation(-backDirection, Vector3.up)
+    );
+
+    // --- Rigidbody ---
+    Rigidbody rb = antonInstance.GetComponent<Rigidbody>();
+    if (rb == null)
+        rb = antonInstance.AddComponent<Rigidbody>();
+
+    rb.useGravity = true;
+    rb.isKinematic = false;
+    rb.mass = 9999f;
+
+    rb.constraints =
+        RigidbodyConstraints.FreezePositionX |
+        RigidbodyConstraints.FreezePositionZ |
+        RigidbodyConstraints.FreezeRotation;
+
+    // --- Collider ---
+    CapsuleCollider col = antonInstance.GetComponent<CapsuleCollider>();
+    if (col == null)
+        col = antonInstance.AddComponent<CapsuleCollider>();
+
+    col.center = new Vector3(0f, 1.556444f, 0f);
+    col.height = 2.94f;
+    col.radius = 0.5f;
+
+    // --- Scale ---
+    antonInstance.transform.localScale = new Vector3(0.58f, 0.58f, 0.58f);
+}
+
 
         Animator animator = antonInstance.GetComponentInChildren<Animator>();
         if (animator != null)
@@ -1505,6 +1547,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
         HideChoices();
         Cursor.visible = false;
         Cursor.lockState = CursorLockMode.Locked;
+        SoftwareCursor.Show(false);
     }
 
     private IEnumerator TypeDialogLine(string line)
@@ -1539,8 +1582,8 @@ public class AntonchikFenceEncounter : MonoBehaviour
     private IEnumerator PresentChoices(List<DialogChoice> choices)
     {
         chosenIndex = -1;
-        Cursor.visible = true;
         Cursor.lockState = CursorLockMode.None;
+        SoftwareCursor.Show(true);
 
         choicesRoot = CreatePanel("Choices Root", dialogRoot.transform, Color.clear);
         RectTransform choicesRect = choicesRoot.GetComponent<RectTransform>();
@@ -1617,6 +1660,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
         HideChoices();
         Cursor.visible = false;
         Cursor.lockState = CursorLockMode.Locked;
+        SoftwareCursor.Show(false);
 
         if (dialogLabel != null)
         {

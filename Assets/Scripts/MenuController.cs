@@ -34,6 +34,7 @@ public class MenuController : MonoBehaviour
     [SerializeField] private AudioClip cutsceneTypingSound;
     [SerializeField] private AudioClip cutsceneFinishSound;
     [SerializeField] private string cutsceneContinueText = "Press any button to continue";
+    [SerializeField] private GameObject cursor;
 
     private const string VolumePref = "settings.masterVolume";
     private const string SensitivityPref = "settings.mouseSensitivity";
@@ -101,6 +102,16 @@ public class MenuController : MonoBehaviour
         }
     }
 
+    private void Start()
+    {
+        // SoftwareCursor registers itself in its own Awake, so show the main-menu
+        // cursor here (after all Awakes) rather than from ConfigureMainMenu.
+        if (mode == MenuMode.MainMenu)
+        {
+            ShowSoftwareCursor(true);
+        }
+    }
+
     private void Update()
     {
         if (introActive)
@@ -122,7 +133,6 @@ public class MenuController : MonoBehaviour
     private void ConfigureMainMenu()
     {
         Time.timeScale = 1f;
-        Cursor.visible = true;
         Cursor.lockState = CursorLockMode.None;
 
         canvas = FindObjectOfType<Canvas>();
@@ -737,11 +747,10 @@ public class MenuController : MonoBehaviour
 
         introActive = true;
         EnterGameplayPauseState();
-
+        SoftwareCursor.Show(false);
         introLabel.text = string.Empty;
         introContinueLabel.alpha = 0f;
         yield return null;
-
         List<CutsceneTextEntry> entries = introTexts != null && introTexts.Count > 0 ? introTexts : new List<CutsceneTextEntry> { new CutsceneTextEntry() };
         for (int entryIndex = 0; entryIndex < entries.Count; entryIndex++)
         {
@@ -779,13 +788,21 @@ public class MenuController : MonoBehaviour
         introActive = false;
     }
 
+    // The software cursor lives in the scene (a Canvas + Image + SoftwareCursor
+    // component); menus just toggle it on/off. See SoftwareCursor.cs.
+    private void ShowSoftwareCursor(bool show)
+    {
+        SoftwareCursor.Show(show);
+    }
+
     private void EnterGameplayPauseState()
     {
         Time.timeScale = 0f;
         previousCursorVisible = Cursor.visible;
         previousCursorLockMode = Cursor.lockState;
-        Cursor.visible = true;
+        Cursor.visible = false;
         Cursor.lockState = CursorLockMode.None;
+        ShowSoftwareCursor(true);
 
         if (playerController != null)
         {
@@ -802,6 +819,7 @@ public class MenuController : MonoBehaviour
     {
         Time.timeScale = 1f;
         ResumeWorldProducers();
+        ShowSoftwareCursor(false);
 
         if (forceGameplayCursor && playerController != null && playerController.lockCursor)
         {

@@ -55,8 +55,8 @@ public class CarEscapeController : SimpleInteractable
             body = gameObject.AddComponent<Rigidbody>();
         }
 
-        body.isKinematic = true;
-        body.useGravity = false;
+        body.isKinematic = false;
+        body.useGravity = true;
         body.interpolation = RigidbodyInterpolation.Interpolate;
 
         if (GetComponentInChildren<Collider>() != null)
@@ -66,12 +66,16 @@ public class CarEscapeController : SimpleInteractable
 
         Bounds bounds = ComputeBounds();
         BoxCollider box = gameObject.AddComponent<BoxCollider>();
-        box.center = transform.InverseTransformPoint(bounds.center);
+        Vector3 localCenter = transform.InverseTransformPoint(bounds.center);
         Vector3 lossy = transform.lossyScale;
-        box.size = new Vector3(
+        Vector3 localSize = new Vector3(
             bounds.size.x / Mathf.Max(0.0001f, Mathf.Abs(lossy.x)),
             bounds.size.y / Mathf.Max(0.0001f, Mathf.Abs(lossy.y)),
             bounds.size.z / Mathf.Max(0.0001f, Mathf.Abs(lossy.z)));
+
+        // Y is pinned to authored values; X/Z still come from the truck bounds.
+        box.center = new Vector3(localCenter.x, 0.93f, localCenter.z);
+        box.size = new Vector3(localSize.x, 1.72f, localSize.z);
     }
 
     private Bounds ComputeBounds()
@@ -359,7 +363,7 @@ public class CarEscapeController : SimpleInteractable
             SceneLoadingScreen.Load("menu");
         });
 
-        Cursor.visible = true;
         Cursor.lockState = CursorLockMode.None;
+        SoftwareCursor.Show(true);
     }
 }

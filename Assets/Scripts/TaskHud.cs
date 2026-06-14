@@ -371,8 +371,8 @@ public static class GameOverScreen
             }
 
             group.alpha = 1f;
-            Cursor.visible = true;
             Cursor.lockState = CursorLockMode.None;
+            SoftwareCursor.Show(true);
         }
 
         private static void StretchFull(RectTransform rect)
