@@ -14,15 +14,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: cc60dc4d5865b48a4bb5eee7730832b9, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -0.48601815
+      value: 1.08
       objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: cc60dc4d5865b48a4bb5eee7730832b9, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 1.0671498
+      value: 1.1
       objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: cc60dc4d5865b48a4bb5eee7730832b9, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 2.9842467
+      value: 1.91
       objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: cc60dc4d5865b48a4bb5eee7730832b9, type: 3}
       propertyPath: m_LocalRotation.w
@@ -68,6 +68,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: -6689036041284674117, guid: cc60dc4d5865b48a4bb5eee7730832b9, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1047639096482470933}
+    - targetCorrespondingSourceObject: {fileID: -6689036041284674117, guid: cc60dc4d5865b48a4bb5eee7730832b9, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 6823548918266842080}
   m_SourcePrefab: {fileID: -5645937942226959685, guid: cc60dc4d5865b48a4bb5eee7730832b9, type: 3}
 --- !u!1 &8490735425176797456 stripped
 GameObject:
@@ -241,3 +244,50 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!114 &6823548918266842080
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8490735425176797456}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b85e6b7ad1c134901bae4096854527e3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  pickup: {fileID: 0}
+  sprayCamera: {fileID: 0}
+  nozzle: {fileID: 0}
+  audioSource: {fileID: 0}
+  sprayLoop: {fileID: 0}
+  rattleSound: {fileID: 0}
+  range: 4
+  sprayInterval: 0.018
+  dabSizeRange: {x: 0.18, y: 0.3}
+  dabDepth: 0.4
+  spreadRadius: 0.025
+  maxDecals: 500
+  infinitePaint: 1
+  paintCapacity: 100
+  paintPerDab: 0.12
+  palette:
+  - name: Power Black
+    color: {r: 0.05, g: 0.05, b: 0.05, a: 1}
+  - name: Shock White
+    color: {r: 0.95, g: 0.95, b: 0.95, a: 1}
+  - name: Madrid Red
+    color: {r: 0.85, g: 0.1, b: 0.12, a: 1}
+  - name: Genius Blue
+    color: {r: 0.1, g: 0.35, b: 0.9, a: 1}
+  - name: UFO Green
+    color: {r: 0.2, g: 0.8, b: 0.25, a: 1}
+  - name: Yellow Light
+    color: {r: 0.98, g: 0.85, b: 0.1, a: 1}
+  - name: Power Orange
+    color: {r: 0.98, g: 0.45, b: 0.05, a: 1}
+  - name: Gleam Pink
+    color: {r: 0.95, g: 0.3, b: 0.7, a: 1}
+  cycleColorKey: 99
+  colorLabel: {fileID: 0}
+  colorFormat: '{0}  |  Paint {1:0}%'
