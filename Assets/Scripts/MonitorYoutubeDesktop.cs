@@ -36,9 +36,20 @@ public class MonitorYoutubeDesktop : MonoBehaviour
     // or bloom blows the text/screen out
     [SerializeField] private float screenEmissionNits = 15f;
 
+    // Music app: the tracks live in Assets/Music and are wired here. The
+    // display name and the terminal "filename" both come from clip.name unless
+    // an explicit override is supplied in musicTitles (parallel array).
+    [SerializeField] private AudioClip[] musicTracks = new AudioClip[0];
+    [SerializeField] private string[] musicTitles = new string[0];
+
     private const int UiLayer = 5;
     private const float TitleBarHeight = 30f;
     private const float TaskbarHeight = 36f;
+    // Raw HDR multiplier for the screen image (we drive emission with
+    // _UseEmissiveIntensity = 0, so this is NOT nits). 1.0 ≈ a normal white
+    // monitor; a little over 1 makes it read as "on" in the dark room without
+    // blowing white UI (e.g. the YouTube page) into bloom.
+    private const float ScreenEmissionStrength = 3f;
 
     public static bool TerminalCaptureActive { get; private set; }
 
@@ -53,11 +64,22 @@ public class MonitorYoutubeDesktop : MonoBehaviour
     private GameObject catalogRoot;
     private GameObject playerRoot;
     private GameObject terminalWindow;
+    private GameObject musicWindow;
     private RawImage videoImage;
     private TextMeshProUGUI playerTitle;
     private TextMeshProUGUI playPauseLabel;
     private TextMeshProUGUI taskbarClock;
     private TextMeshProUGUI terminalText;
+    private TextMeshProUGUI musicNowPlaying;
+    private TextMeshProUGUI musicPlayPauseLabel;
+    private TextMeshProUGUI musicTimeLabel;
+    private TextMeshProUGUI videoTimeLabel;
+    private RectTransform musicSeekFill;
+    private RectTransform musicSeekHandle;
+    private RectTransform videoSeekFill;
+    private RectTransform videoSeekHandle;
+    private float musicSeekWidth;
+    private float videoSeekWidth;
     private RectTransform virtualCursor;
 
     private bool previousCursorVisible;
@@ -67,27 +89,38 @@ public class MonitorYoutubeDesktop : MonoBehaviour
     private Vector2 cursorPosition;
     private int currentVideoIndex = -1;
 
+    private AudioSource musicAudioSource;
+    private int currentTrackIndex = -1;
+    private bool musicPaused;
+    private bool musicWasPlaying;
+
     private readonly List<DesktopHitTarget> iconHitTargets = new List<DesktopHitTarget>();
     private readonly List<DesktopHitTarget> catalogHitTargets = new List<DesktopHitTarget>();
     private readonly List<DesktopHitTarget> playerHitTargets = new List<DesktopHitTarget>();
     private readonly List<DesktopHitTarget> terminalHitTargets = new List<DesktopHitTarget>();
+    private readonly List<DesktopHitTarget> musicHitTargets = new List<DesktopHitTarget>();
+    private readonly List<DesktopScrubTarget> musicScrubTargets = new List<DesktopScrubTarget>();
+    private readonly List<DesktopScrubTarget> playerScrubTargets = new List<DesktopScrubTarget>();
+    private DesktopScrubTarget activeScrubTarget;
 
     // terminal state
     private readonly List<string> terminalLines = new List<string>();
     private string terminalInput = string.Empty;
+    private string terminalCwd = "~";
     private const int TerminalMaxLines = 19;
-    private const string TerminalPrompt = "anton@antonchik-pc:~$ ";
+    private const string MusicDir = "music";
     private static readonly Dictionary<string, string> TerminalFiles = new Dictionary<string, string>
     {
-        { "zametka.txt", "не забыть: ключи от ворот НЕ ОСТАВЛЯТЬ у забора.\nопять потеряю — буду весь двор перерывать." },
-        { "plan.txt", "1. найти того кто лазает по двору ночью\n2. снюс. СНЮС. не забыть снюс\n3. заправить тачку (бак почти пустой)" },
-        { "sshd.log", "WARN: 47 неудачных попыток входа с 192.168.0.66\nWARN: пользователь 'scalapendra' не существует\nWARN: я это не печатал" },
+        { "zametka.txt", "Мы жрем. Мы жрали. Мы сожрем\n" },
+        { "plan.txt", "1. поиграться с яичками\n2. взять виски\n3. выйти" },
+        { "sshd.log", "WARN: 47 неудачных попыток входа с 192.168.0.66\nWARN: пользователь 'server.exe' не существует\nWARN: Его никогда здесь не было." },
     };
 
     private void Awake()
     {
         ResolveReferences();
         ConfigureVideoPlayer();
+        ConfigureMusicSource();
         BuildDesktop();
         ShowDesktop();
         SetDesktopInput(false);
@@ -110,6 +143,8 @@ public class MonitorYoutubeDesktop : MonoBehaviour
     private void Update()
     {
         UpdateClock();
+        UpdateMusicPlayback();
+        UpdateTimelines();
 
         TerminalCaptureActive = desktopInputEnabled && terminalWindow != null && terminalWindow.activeSelf;
 
@@ -126,7 +161,23 @@ public class MonitorYoutubeDesktop : MonoBehaviour
 
         if (Input.GetMouseButtonDown(0))
         {
-            ClickAtCursor();
+            // a timeline grab takes priority over button clicks
+            if (!TryBeginScrub())
+            {
+                ClickAtCursor();
+            }
+        }
+
+        if (activeScrubTarget != null)
+        {
+            if (Input.GetMouseButton(0))
+            {
+                activeScrubTarget.Scrub(cursorPosition);
+            }
+            else
+            {
+                activeScrubTarget = null;
+            }
         }
 
         if (TerminalCaptureActive)
@@ -282,6 +333,9 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         terminalWindow = BuildWindowFrame(canvasRect, "anton@antonchik-pc: ~", new Color(0.09f, 0.1f, 0.11f, 1f), CloseTerminal);
         BuildTerminal();
 
+        musicWindow = BuildWindowFrame(canvasRect, "Music — AntonOS", new Color(0.1f, 0.08f, 0.13f, 1f), CloseMusic);
+        BuildMusic();
+
         BuildTaskbar(canvasRect);
         BuildVirtualCursor(canvasRect);
         ApplyDesktopTextureToScreen();
@@ -311,6 +365,7 @@ public class MonitorYoutubeDesktop : MonoBehaviour
 
         BuildIcon("YouTube", new Vector2(26f, -28f), new Color(0.78f, 0.06f, 0.05f, 1f), "YT", Color.white, OpenYoutube);
         BuildIcon("Terminal", new Vector2(26f, -134f), new Color(0.13f, 0.14f, 0.15f, 1f), ">_", new Color(0.45f, 0.95f, 0.45f, 1f), OpenTerminal);
+        BuildIcon("Music", new Vector2(26f, -240f), new Color(0.16f, 0.1f, 0.22f, 1f), "MP3", new Color(0.78f, 0.6f, 0.98f, 1f), OpenMusic);
     }
 
     private void BuildIcon(string label, Vector2 position, Color tileColor, string glyph, Color glyphColor, Action onOpen)
@@ -352,7 +407,16 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         closeGlyph.text = string.Empty;
 
         // click zone for the red dot
-        List<DesktopHitTarget> targets = title.StartsWith("anton@") ? terminalHitTargets : null;
+        List<DesktopHitTarget> targets = null;
+        if (title.StartsWith("anton@"))
+        {
+            targets = terminalHitTargets;
+        }
+        else if (title.StartsWith("Music"))
+        {
+            targets = musicHitTargets;
+        }
+
         var closeTarget = new DesktopHitTarget(new Rect(4f, 3f, 26f, 26f), onClose);
         if (targets != null)
         {
@@ -383,7 +447,7 @@ public class MonitorYoutubeDesktop : MonoBehaviour
             new Vector2(0f, -(desktopSize.y - TaskbarHeight)), new Vector2(desktopSize.x, TaskbarHeight));
 
         TextMeshProUGUI start = CreateText("Start", taskbar.transform, new Vector2(12f, -6f), new Vector2(160f, 24f), 15, FontStyle.Bold, new Color(0.5f, 0.85f, 0.5f, 1f), TextAnchor.MiddleLeft);
-        start.text = "● AntonOS";
+        start.text = "AntonOS";
 
         taskbarClock = CreateText("Clock", taskbar.transform, new Vector2(desktopSize.x - 110f, -6f), new Vector2(100f, 24f), 14, FontStyle.Normal, new Color(0.85f, 0.85f, 0.85f, 1f), TextAnchor.MiddleRight);
         taskbarClock.text = "--:--";
@@ -428,7 +492,7 @@ public class MonitorYoutubeDesktop : MonoBehaviour
 
             RectTransform buttonRect = button.GetComponent<RectTransform>();
             CreateThumbnail("Thumbnail", buttonRect, GetThumbnail(i), new Vector2(10f, -10f), new Vector2(258f, 118f));
-            CreateText("▶", buttonRect, new Vector2(111f, -43f), new Vector2(56f, 44f), 32, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+            CreateText(">", buttonRect, new Vector2(111f, -43f), new Vector2(56f, 44f), 32, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
             CreatePanel("Meta Background", buttonRect, new Color(1f, 0.985f, 0.92f, 1f), new Vector2(10f, -132f), new Vector2(258f, 56f));
             CreateText(GetTitle(i), buttonRect, new Vector2(16f, -136f), new Vector2(246f, 40f), 14, FontStyle.Bold, Color.black, TextAnchor.UpperLeft);
             CreateText("Janusz the Jew", buttonRect, new Vector2(16f, -166f), new Vector2(120f, 20f), 14, FontStyle.Bold, new Color(0.2f, 0.2f, 0.2f, 1f), TextAnchor.MiddleLeft);
@@ -467,14 +531,84 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         bottomRect.pivot = new Vector2(0.5f, 0f);
         bottomRect.anchoredPosition = Vector2.zero;
 
-        Button playPauseButton = CreateButton("Play Pause Button", root, new Vector2(28f, 18f), new Vector2(128f, 40f), "Pause");
-        RectTransform playRect = playPauseButton.GetComponent<RectTransform>();
-        playRect.anchorMin = new Vector2(0f, 0f);
-        playRect.anchorMax = new Vector2(0f, 0f);
-        playRect.pivot = new Vector2(0f, 0f);
-        playPauseButton.onClick.AddListener(TogglePlayback);
+        // transport row mirrors the music app: prev / play-pause / next / stop
+        AddPlayerControl("Video Prev", root, new Vector2(28f, 18f), new Vector2(70f, 40f), "<<", PrevVideo);
+        Button playPauseButton = AddPlayerControl("Play Pause Button", root, new Vector2(104f, 18f), new Vector2(90f, 40f), "II", TogglePlayback);
         playPauseLabel = playPauseButton.GetComponentInChildren<TextMeshProUGUI>();
-        playerHitTargets.Add(new DesktopHitTarget(new Rect(28f, desktopSize.y - 58f, 128f, 40f), TogglePlayback));
+        AddPlayerControl("Video Next", root, new Vector2(200f, 18f), new Vector2(70f, 40f), ">>", NextVideo);
+        AddPlayerControl("Video Stop", root, new Vector2(276f, 18f), new Vector2(70f, 40f), "[]", StopVideo);
+
+        // draggable scrub bar across the top of the bottom bar
+        videoSeekWidth = desktopSize.x - 220f;
+        const float videoSeekFromBottom = 72f;
+        GameObject videoTrack = CreatePanel("Video Seek Track", root, new Color(0.4f, 0.4f, 0.4f, 0.9f), Vector2.zero, new Vector2(videoSeekWidth, 6f));
+        RectTransform videoTrackRect = videoTrack.GetComponent<RectTransform>();
+        videoTrackRect.anchorMin = new Vector2(0f, 0f);
+        videoTrackRect.anchorMax = new Vector2(0f, 0f);
+        videoTrackRect.pivot = new Vector2(0f, 0f);
+        videoTrackRect.anchoredPosition = new Vector2(28f, videoSeekFromBottom);
+        float videoSeekCursorTop = desktopSize.y - (videoSeekFromBottom + 6f);
+        DecorateSeekBar(videoTrack, new Color(0.92f, 0.06f, 0.05f, 1f),
+            new Rect(28f, videoSeekCursorTop - 9f, videoSeekWidth, 24f), out videoSeekFill, out videoSeekHandle, playerScrubTargets, SeekVideo);
+
+        videoTimeLabel = CreateText("Video Time", root, Vector2.zero, new Vector2(180f, 22f), 13, FontStyle.Normal, new Color(0.92f, 0.92f, 0.92f, 1f), TextAnchor.MiddleLeft);
+        RectTransform videoTimeRect = videoTimeLabel.GetComponent<RectTransform>();
+        videoTimeRect.anchorMin = new Vector2(0f, 0f);
+        videoTimeRect.anchorMax = new Vector2(0f, 0f);
+        videoTimeRect.pivot = new Vector2(0f, 0f);
+        videoTimeRect.anchoredPosition = new Vector2(28f + videoSeekWidth + 12f, videoSeekFromBottom - 8f);
+        videoTimeLabel.text = "0:00 / 0:00";
+    }
+
+    private Button AddPlayerControl(string name, Transform parent, Vector2 anchoredPosition, Vector2 size, string label, Action onClick)
+    {
+        Button button = CreateButton(name, parent, anchoredPosition, size, label);
+        RectTransform rect = button.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0f, 0f);
+        rect.anchorMax = new Vector2(0f, 0f);
+        rect.pivot = new Vector2(0f, 0f);
+        rect.anchoredPosition = anchoredPosition;
+        button.onClick.AddListener(() => onClick());
+
+        float cursorTop = desktopSize.y - (anchoredPosition.y + size.y);
+        playerHitTargets.Add(new DesktopHitTarget(new Rect(anchoredPosition.x, cursorTop, size.x, size.y), onClick));
+        return button;
+    }
+
+    private int VideoCount => localVideos != null && localVideos.Length > 0 ? localVideos.Length : 6;
+
+    private void PrevVideo()
+    {
+        if (currentVideoIndex < 0)
+        {
+            PlayVideo(0);
+            return;
+        }
+
+        int count = VideoCount;
+        PlayVideo(currentVideoIndex <= 0 ? count - 1 : currentVideoIndex - 1);
+    }
+
+    private void NextVideo()
+    {
+        int count = VideoCount;
+        PlayVideo(currentVideoIndex < 0 ? 0 : (currentVideoIndex + 1) % count);
+    }
+
+    private void StopVideo()
+    {
+        if (videoPlayer != null)
+        {
+            videoPlayer.Pause();
+            videoPlayer.time = 0d;
+        }
+
+        if (playPauseLabel != null)
+        {
+            playPauseLabel.text = ">";
+        }
+
+        UpdateVideoTimeline();
     }
 
     // ------------------------------------------------------------------
@@ -553,13 +687,28 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         switch (command)
         {
             case "help":
-                AppendLine("help, ls, cat <файл>, pwd, whoami, neofetch, clear, youtube, exit");
+                AppendLine("help, ls, cd <каталог>, cat <файл>, ffplay <трек>, pwd, whoami, neofetch, clear, youtube, music, exit");
                 break;
             case "ls":
-                AppendLine(string.Join("  ", TerminalFiles.Keys));
+                if (terminalCwd == "~/" + MusicDir)
+                {
+                    AppendLine(string.Join("  ", GetTrackFileNames()));
+                }
+                else
+                {
+                    AppendLine(MusicDir + "/  " + string.Join("  ", TerminalFiles.Keys));
+                }
+
+                break;
+            case "cd":
+                HandleCdCommand(argument);
                 break;
             case "cat":
-                if (TerminalFiles.TryGetValue(argument, out string content))
+                if (terminalCwd == "~/" + MusicDir)
+                {
+                    AppendLine("cat: это бинарь. для музыки есть ffplay.");
+                }
+                else if (TerminalFiles.TryGetValue(argument, out string content))
                 {
                     foreach (string line in content.Split('\n'))
                     {
@@ -572,8 +721,15 @@ public class MonitorYoutubeDesktop : MonoBehaviour
                 }
 
                 break;
+            case "ffplay":
+                HandleFfplayCommand(argument);
+                break;
+            case "music":
+                OpenMusic();
+                AppendLine("открываю AntonMusic...");
+                break;
             case "pwd":
-                AppendLine("/home/anton");
+                AppendLine(terminalCwd == "~/" + MusicDir ? "/home/anton/" + MusicDir : "/home/anton");
                 break;
             case "whoami":
                 AppendLine("anton... а ты кто?");
@@ -603,6 +759,107 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         }
     }
 
+    private void HandleCdCommand(string argument)
+    {
+        string target = argument.Trim().TrimEnd('/');
+
+        if (string.IsNullOrEmpty(target) || target == "~" || target == ".." || target == "/home/anton")
+        {
+            terminalCwd = "~";
+            return;
+        }
+
+        if (target == MusicDir || target == "~/" + MusicDir)
+        {
+            terminalCwd = "~/" + MusicDir;
+            return;
+        }
+
+        AppendLine($"cd: {argument}: Нет такого каталога");
+    }
+
+    private void HandleFfplayCommand(string argument)
+    {
+        if (string.IsNullOrWhiteSpace(argument))
+        {
+            AppendLine("Usage: ffplay <трек>");
+            return;
+        }
+
+        if (TryResolveTrack(argument, out int index))
+        {
+            PlayTrack(index);
+            AppendLine("ffplay version 4.antonchik  Copyright (c) гараж");
+            AppendLine("Сейчас играет: " + GetTrackTitle(index));
+            AppendLine("(управление — в приложении Music; 'music' чтобы открыть)");
+        }
+        else
+        {
+            AppendLine($"ffplay: {argument}: No such file or directory");
+            if (musicTracks != null && musicTracks.Length > 0)
+            {
+                AppendLine("доступные треки (cd music; ls):");
+                foreach (string fileName in GetTrackFileNames())
+                {
+                    AppendLine("  " + fileName);
+                }
+            }
+        }
+    }
+
+    private bool TryResolveTrack(string argument, out int index)
+    {
+        index = -1;
+        if (musicTracks == null)
+        {
+            return false;
+        }
+
+        string needle = argument.Trim();
+        if (needle.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+        {
+            needle = needle.Substring(0, needle.Length - 4);
+        }
+
+        if (needle.StartsWith(MusicDir + "/", StringComparison.OrdinalIgnoreCase))
+        {
+            needle = needle.Substring(MusicDir.Length + 1);
+        }
+
+        // exact name first, then a forgiving substring match
+        for (int i = 0; i < musicTracks.Length; i++)
+        {
+            if (musicTracks[i] != null && string.Equals(musicTracks[i].name, needle, StringComparison.OrdinalIgnoreCase))
+            {
+                index = i;
+                return true;
+            }
+        }
+
+        for (int i = 0; i < musicTracks.Length; i++)
+        {
+            if (musicTracks[i] != null && musicTracks[i].name.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                index = i;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private List<string> GetTrackFileNames()
+    {
+        var names = new List<string>();
+        int count = musicTracks != null ? musicTracks.Length : 0;
+        for (int i = 0; i < count; i++)
+        {
+            names.Add(GetTrackFileName(i));
+        }
+
+        return names;
+    }
+
     private void AppendLine(string line)
     {
         terminalLines.Add(line);
@@ -627,8 +884,430 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         }
 
         bool blink = Mathf.Repeat(Time.unscaledTime, 1f) < 0.55f;
-        builder.Append(TerminalPrompt).Append(terminalInput).Append(blink ? "█" : " ");
+        builder.Append(TerminalPrompt).Append(terminalInput).Append(blink ? "_" : " ");
         terminalText.text = builder.ToString();
+    }
+
+    private string TerminalPrompt => "anton@antonchik-pc:" + terminalCwd + "$ ";
+
+    // ------------------------------------------------------------------
+    // music app (playlist + transport), audio plays via musicAudioSource so
+    // it can keep going with the window closed or be driven from the terminal
+    // ------------------------------------------------------------------
+
+    private void ConfigureMusicSource()
+    {
+        if (musicAudioSource == null)
+        {
+            musicAudioSource = gameObject.AddComponent<AudioSource>();
+        }
+
+        musicAudioSource.playOnAwake = false;
+        musicAudioSource.loop = false;
+        musicAudioSource.spatialBlend = 0f;
+        musicAudioSource.Stop();
+    }
+
+    private void BuildMusic()
+    {
+        RectTransform root = musicWindow.GetComponent<RectTransform>();
+
+        CreateText("Music Header", root, new Vector2(20f, -(TitleBarHeight + 8f)), new Vector2(600f, 30f),
+            22, FontStyle.Bold, new Color(0.85f, 0.78f, 0.98f, 1f), TextAnchor.MiddleLeft).text = "AntonMusic";
+        CreateText("Music Sub", root, new Vector2(20f, -(TitleBarHeight + 38f)), new Vector2(700f, 22f),
+            13, FontStyle.Normal, new Color(0.6f, 0.6f, 0.66f, 1f), TextAnchor.MiddleLeft).text = "локальная фонотека";
+
+        int count = musicTracks != null ? musicTracks.Length : 0;
+        int columns = count > 7 ? 2 : 1;
+        int rowsPerColumn = Mathf.Max(1, Mathf.CeilToInt(count / (float)columns));
+        const float listTop = TitleBarHeight + 72f;
+        const float rowHeight = 38f;
+        float columnWidth = (desktopSize.x - 40f - (columns - 1) * 16f) / columns;
+
+        for (int i = 0; i < count; i++)
+        {
+            int index = i;
+            int column = i / rowsPerColumn;
+            int rowInColumn = i % rowsPerColumn;
+            float x = 20f + column * (columnWidth + 16f);
+            float top = listTop + rowInColumn * rowHeight;
+
+            Button button = CreateButton("Track " + (i + 1), root, new Vector2(x, -top), new Vector2(columnWidth, rowHeight - 6f),
+                string.Empty, new Color(0.16f, 0.14f, 0.2f, 1f), new Color(0.26f, 0.22f, 0.34f, 1f), new Color(0.4f, 0.28f, 0.56f, 1f));
+            button.onClick.AddListener(() => PlayTrack(index));
+            musicHitTargets.Add(new DesktopHitTarget(new Rect(x, top, columnWidth, rowHeight - 6f), () => PlayTrack(index)));
+
+            RectTransform buttonRect = button.GetComponent<RectTransform>();
+            CreateText("Num", buttonRect, new Vector2(10f, 0f), new Vector2(28f, rowHeight - 6f), 14, FontStyle.Bold,
+                new Color(0.62f, 0.5f, 0.85f, 1f), TextAnchor.MiddleLeft).text = (i + 1).ToString("00");
+            CreateText("Track Title", buttonRect, new Vector2(44f, 0f), new Vector2(columnWidth - 54f, rowHeight - 6f),
+                14, FontStyle.Normal, new Color(0.92f, 0.92f, 0.96f, 1f), TextAnchor.MiddleLeft).text = GetTrackTitle(i);
+        }
+
+        // transport sits in the band JUST ABOVE the AntonOS taskbar so the
+        // controls are never hidden behind it (panel bottom == taskbar top)
+        const float barHeight = 100f;
+        float taskbarTop = desktopSize.y - TaskbarHeight;
+        float barTop = taskbarTop - barHeight;
+        CreatePanel("Music Transport", root, new Color(0.06f, 0.05f, 0.09f, 1f), new Vector2(0f, -barTop), new Vector2(desktopSize.x, barHeight));
+
+        musicNowPlaying = CreateText("Music Now Playing", root, new Vector2(20f, -(barTop + 8f)), new Vector2(desktopSize.x - 40f, 22f),
+            14, FontStyle.Bold, new Color(0.82f, 0.78f, 0.92f, 1f), TextAnchor.MiddleLeft);
+
+        // controls go ABOVE the timeline
+        float btnTop = barTop + 38f;
+        AddMusicControl("Music Prev", root, new Vector2(20f, -btnTop), new Vector2(70f, 30f), "<<", PrevTrack);
+        Button playPauseButton = AddMusicControl("Music PlayPause", root, new Vector2(96f, -btnTop), new Vector2(90f, 30f), ">", ToggleMusicPlayback);
+        musicPlayPauseLabel = playPauseButton.GetComponentInChildren<TextMeshProUGUI>();
+        AddMusicControl("Music Next", root, new Vector2(192f, -btnTop), new Vector2(70f, 30f), ">>", NextTrack);
+        AddMusicControl("Music Stop", root, new Vector2(268f, -btnTop), new Vector2(70f, 30f), "[]", StopMusic);
+
+        // draggable seek bar BELOW the controls (still clear of the taskbar)
+        musicSeekWidth = desktopSize.x - 200f;
+        float seekTop = barTop + 82f;
+        GameObject musicTrack = CreatePanel("Music Seek Track", root, new Color(0.25f, 0.24f, 0.3f, 1f), new Vector2(20f, -seekTop), new Vector2(musicSeekWidth, 6f));
+        DecorateSeekBar(musicTrack, new Color(0.62f, 0.4f, 0.95f, 1f),
+            new Rect(20f, seekTop - 9f, musicSeekWidth, 22f), out musicSeekFill, out musicSeekHandle, musicScrubTargets, SeekMusic);
+
+        musicTimeLabel = CreateText("Music Time", root, new Vector2(20f + musicSeekWidth + 12f, -(seekTop - 7f)), new Vector2(168f, 20f),
+            12, FontStyle.Normal, new Color(0.8f, 0.78f, 0.86f, 1f), TextAnchor.MiddleLeft);
+        musicTimeLabel.text = "0:00 / 0:00";
+
+        UpdateMusicNowPlaying();
+        UpdateMusicTimeline();
+    }
+
+    private Button AddMusicControl(string name, Transform parent, Vector2 anchoredPosition, Vector2 size, string label, Action onClick)
+    {
+        Button button = CreateButton(name, parent, anchoredPosition, size, label,
+            new Color(0.42f, 0.34f, 0.6f, 1f), new Color(0.56f, 0.46f, 0.78f, 1f), new Color(0.68f, 0.55f, 0.9f, 1f));
+        button.onClick.AddListener(() => onClick());
+        musicHitTargets.Add(new DesktopHitTarget(new Rect(anchoredPosition.x, -anchoredPosition.y, size.x, size.y), onClick));
+        return button;
+    }
+
+    private void PlayTrack(int index)
+    {
+        if (musicTracks == null || index < 0 || index >= musicTracks.Length || musicTracks[index] == null)
+        {
+            return;
+        }
+
+        if (musicAudioSource == null)
+        {
+            ConfigureMusicSource();
+        }
+
+        // don't let the video and the music app talk over each other
+        if (videoPlayer != null && videoPlayer.isPlaying)
+        {
+            videoPlayer.Pause();
+        }
+
+        currentTrackIndex = index;
+        musicPaused = false;
+        musicWasPlaying = false;
+        musicAudioSource.clip = musicTracks[index];
+        musicAudioSource.loop = false;
+        musicAudioSource.Play();
+
+        if (musicPlayPauseLabel != null)
+        {
+            musicPlayPauseLabel.text = "II";
+        }
+
+        UpdateMusicNowPlaying();
+    }
+
+    private void ToggleMusicPlayback()
+    {
+        if (musicAudioSource == null || currentTrackIndex < 0)
+        {
+            if (musicTracks != null && musicTracks.Length > 0)
+            {
+                PlayTrack(0);
+            }
+
+            return;
+        }
+
+        if (musicAudioSource.isPlaying)
+        {
+            musicAudioSource.Pause();
+            musicPaused = true;
+            if (musicPlayPauseLabel != null)
+            {
+                musicPlayPauseLabel.text = ">";
+            }
+        }
+        else
+        {
+            musicAudioSource.UnPause();
+            musicPaused = false;
+            if (musicPlayPauseLabel != null)
+            {
+                musicPlayPauseLabel.text = "II";
+            }
+        }
+    }
+
+    private void StopMusic()
+    {
+        if (musicAudioSource != null)
+        {
+            musicAudioSource.Stop();
+            musicAudioSource.clip = null;
+        }
+
+        currentTrackIndex = -1;
+        musicPaused = false;
+        musicWasPlaying = false;
+        if (musicPlayPauseLabel != null)
+        {
+            musicPlayPauseLabel.text = ">";
+        }
+
+        UpdateMusicNowPlaying();
+    }
+
+    private void NextTrack()
+    {
+        int count = musicTracks != null ? musicTracks.Length : 0;
+        if (count == 0)
+        {
+            return;
+        }
+
+        int next = currentTrackIndex < 0 ? 0 : (currentTrackIndex + 1) % count;
+        PlayTrack(next);
+    }
+
+    private void PrevTrack()
+    {
+        int count = musicTracks != null ? musicTracks.Length : 0;
+        if (count == 0)
+        {
+            return;
+        }
+
+        int prev = currentTrackIndex <= 0 ? count - 1 : currentTrackIndex - 1;
+        PlayTrack(prev);
+    }
+
+    private void UpdateMusicNowPlaying()
+    {
+        if (musicNowPlaying == null)
+        {
+            return;
+        }
+
+        musicNowPlaying.text = currentTrackIndex >= 0
+            ? GetTrackTitle(currentTrackIndex)
+            : "— ничего не играет —";
+    }
+
+    // Auto-advance to the next track when the current one finishes. We only
+    // treat "stopped" as "ended" once we've actually observed it playing, so
+    // the frame right after Play() (before audio starts) doesn't skip a track.
+    private void UpdateMusicPlayback()
+    {
+        if (musicAudioSource == null || currentTrackIndex < 0 || musicPaused)
+        {
+            return;
+        }
+
+        // When the game is paused (Esc menu) the world audio — including this
+        // source — is paused externally. Don't mistake that for the track
+        // ending, or we'd skip to the next song and play it over the menu.
+        if (Time.timeScale == 0f)
+        {
+            return;
+        }
+
+        if (musicAudioSource.isPlaying)
+        {
+            musicWasPlaying = true;
+        }
+        else if (musicWasPlaying)
+        {
+            musicWasPlaying = false;
+            NextTrack();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // draggable timelines (shared by the music player and the video player)
+    // ------------------------------------------------------------------
+
+    private void DecorateSeekBar(GameObject track, Color accent, Rect cursorRect, out RectTransform fill, out RectTransform handle, List<DesktopScrubTarget> scrubList, Action<float> onScrub)
+    {
+        GameObject fillObject = CreatePanel(track.name + " Fill", track.transform, accent);
+        fill = fillObject.GetComponent<RectTransform>();
+        fill.anchorMin = new Vector2(0f, 0.5f);
+        fill.anchorMax = new Vector2(0f, 0.5f);
+        fill.pivot = new Vector2(0f, 0.5f);
+        fill.anchoredPosition = Vector2.zero;
+        fill.sizeDelta = new Vector2(0f, 6f);
+
+        GameObject handleObject = CreatePanel(track.name + " Handle", track.transform, Color.white);
+        handle = handleObject.GetComponent<RectTransform>();
+        handle.anchorMin = new Vector2(0f, 0.5f);
+        handle.anchorMax = new Vector2(0f, 0.5f);
+        handle.pivot = new Vector2(0.5f, 0.5f);
+        handle.anchoredPosition = Vector2.zero;
+        handle.sizeDelta = new Vector2(12f, 16f);
+
+        scrubList.Add(new DesktopScrubTarget(cursorRect, onScrub));
+    }
+
+    private bool TryBeginScrub()
+    {
+        List<DesktopScrubTarget> list = null;
+        if (musicWindow != null && musicWindow.activeSelf)
+        {
+            list = musicScrubTargets;
+        }
+        else if (youtubeWindow != null && youtubeWindow.activeSelf && playerRoot != null && playerRoot.activeSelf)
+        {
+            list = playerScrubTargets;
+        }
+
+        if (list == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (list[i].Contains(cursorPosition))
+            {
+                activeScrubTarget = list[i];
+                PlayClickSound();
+                list[i].Scrub(cursorPosition);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void SeekMusic(float fraction)
+    {
+        if (musicAudioSource == null || musicAudioSource.clip == null)
+        {
+            return;
+        }
+
+        float length = musicAudioSource.clip.length;
+        musicAudioSource.time = Mathf.Clamp(fraction * length, 0f, Mathf.Max(0f, length - 0.05f));
+        UpdateMusicTimeline();
+    }
+
+    private void SeekVideo(float fraction)
+    {
+        if (videoPlayer == null || currentVideoIndex < 0)
+        {
+            return;
+        }
+
+        double length = videoPlayer.length;
+        if (length <= 0d)
+        {
+            return;
+        }
+
+        videoPlayer.time = Mathf.Clamp01(fraction) * length;
+        UpdateVideoTimeline();
+    }
+
+    private void UpdateTimelines()
+    {
+        UpdateMusicTimeline();
+        UpdateVideoTimeline();
+    }
+
+    private void UpdateMusicTimeline()
+    {
+        if (musicSeekFill == null)
+        {
+            return;
+        }
+
+        float length = musicAudioSource != null && musicAudioSource.clip != null ? musicAudioSource.clip.length : 0f;
+        float time = musicAudioSource != null && length > 0f ? Mathf.Min(musicAudioSource.time, length) : 0f;
+        float fraction = length > 0f ? Mathf.Clamp01(time / length) : 0f;
+        SetSeekVisual(musicSeekFill, musicSeekHandle, musicSeekWidth, fraction);
+
+        if (musicTimeLabel != null)
+        {
+            musicTimeLabel.text = FormatTime(time) + " / " + FormatTime(length);
+        }
+    }
+
+    private void UpdateVideoTimeline()
+    {
+        if (videoSeekFill == null)
+        {
+            return;
+        }
+
+        double length = videoPlayer != null ? videoPlayer.length : 0d;
+        double time = videoPlayer != null && currentVideoIndex >= 0 ? videoPlayer.time : 0d;
+        float fraction = length > 0d ? Mathf.Clamp01((float)(time / length)) : 0f;
+        SetSeekVisual(videoSeekFill, videoSeekHandle, videoSeekWidth, fraction);
+
+        if (videoTimeLabel != null)
+        {
+            videoTimeLabel.text = FormatTime((float)time) + " / " + FormatTime((float)length);
+        }
+    }
+
+    private void SetSeekVisual(RectTransform fill, RectTransform handle, float trackWidth, float fraction)
+    {
+        float clamped = Mathf.Clamp01(fraction);
+        if (fill != null)
+        {
+            fill.sizeDelta = new Vector2(clamped * trackWidth, fill.sizeDelta.y);
+        }
+
+        if (handle != null)
+        {
+            handle.anchoredPosition = new Vector2(clamped * trackWidth, 0f);
+        }
+    }
+
+    private static string FormatTime(float seconds)
+    {
+        if (seconds < 0f || float.IsNaN(seconds) || float.IsInfinity(seconds))
+        {
+            seconds = 0f;
+        }
+
+        int total = Mathf.FloorToInt(seconds);
+        return (total / 60) + ":" + (total % 60).ToString("00");
+    }
+
+    private string GetTrackTitle(int index)
+    {
+        if (musicTitles != null && index >= 0 && index < musicTitles.Length && !string.IsNullOrWhiteSpace(musicTitles[index]))
+        {
+            return musicTitles[index];
+        }
+
+        if (musicTracks != null && index >= 0 && index < musicTracks.Length && musicTracks[index] != null)
+        {
+            return musicTracks[index].name;
+        }
+
+        return "Track " + (index + 1);
+    }
+
+    private string GetTrackFileName(int index)
+    {
+        string title = (musicTracks != null && index >= 0 && index < musicTracks.Length && musicTracks[index] != null)
+            ? musicTracks[index].name
+            : "track" + (index + 1);
+        return title + ".mp3";
     }
 
     // ------------------------------------------------------------------
@@ -646,6 +1325,11 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         {
             terminalWindow.SetActive(false);
         }
+
+        if (musicWindow != null)
+        {
+            musicWindow.SetActive(false);
+        }
     }
 
     private void OpenYoutube()
@@ -654,6 +1338,11 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         if (terminalWindow != null)
         {
             terminalWindow.SetActive(false);
+        }
+
+        if (musicWindow != null)
+        {
+            musicWindow.SetActive(false);
         }
 
         youtubeWindow.SetActive(true);
@@ -679,6 +1368,11 @@ public class MonitorYoutubeDesktop : MonoBehaviour
             CloseYoutube();
         }
 
+        if (musicWindow != null)
+        {
+            musicWindow.SetActive(false);
+        }
+
         terminalWindow.SetActive(true);
         RefreshTerminalText();
     }
@@ -686,6 +1380,36 @@ public class MonitorYoutubeDesktop : MonoBehaviour
     private void CloseTerminal()
     {
         terminalWindow.SetActive(false);
+    }
+
+    private void OpenMusic()
+    {
+        PlayClickSound();
+        if (youtubeWindow != null)
+        {
+            CloseYoutube();
+        }
+
+        if (terminalWindow != null)
+        {
+            terminalWindow.SetActive(false);
+        }
+
+        if (musicWindow != null)
+        {
+            musicWindow.SetActive(true);
+        }
+
+        UpdateMusicNowPlaying();
+    }
+
+    private void CloseMusic()
+    {
+        // hide only — leave the track playing so it keeps going in the room
+        if (musicWindow != null)
+        {
+            musicWindow.SetActive(false);
+        }
     }
 
     private void PlayVideo(int index)
@@ -699,6 +1423,17 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         if (selectedClip == null)
         {
             return;
+        }
+
+        // the music app and the video share the room's speakers
+        if (musicAudioSource != null && musicAudioSource.isPlaying)
+        {
+            musicAudioSource.Pause();
+            musicPaused = true;
+            if (musicPlayPauseLabel != null)
+            {
+                musicPlayPauseLabel.text = ">";
+            }
         }
 
         currentVideoIndex = index;
@@ -719,7 +1454,7 @@ public class MonitorYoutubeDesktop : MonoBehaviour
 
         if (playPauseLabel != null)
         {
-            playPauseLabel.text = "Pause";
+            playPauseLabel.text = "II";
         }
     }
 
@@ -736,7 +1471,7 @@ public class MonitorYoutubeDesktop : MonoBehaviour
 
             if (playPauseLabel != null)
             {
-                playPauseLabel.text = "Play";
+                playPauseLabel.text = ">";
             }
         }
         else
@@ -745,7 +1480,7 @@ public class MonitorYoutubeDesktop : MonoBehaviour
 
             if (playPauseLabel != null)
             {
-                playPauseLabel.text = "Pause";
+                playPauseLabel.text = "II";
             }
         }
     }
@@ -799,15 +1534,49 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         screenMaterial.mainTextureScale = scale;
         screenMaterial.mainTextureOffset = offset;
 
-        // Emissive output so the panel lights itself uniformly — without it
-        // the High preset's shadowing darkens the sides of the screen.
+        // The screen must read as a self-lit panel: the desktop image comes
+        // purely from emission, while the surface itself absorbs the room
+        // (black albedo, no metallic, zero smoothness) so it neither darkens
+        // in shadow nor reflects/glows with the environment light.
+        if (screenMaterial.HasProperty("_BaseColor"))
+        {
+            screenMaterial.SetColor("_BaseColor", Color.black);
+        }
+
+        if (screenMaterial.HasProperty("_Color"))
+        {
+            screenMaterial.SetColor("_Color", Color.black);
+        }
+
+        if (screenMaterial.HasProperty("_Metallic"))
+        {
+            screenMaterial.SetFloat("_Metallic", 0f);
+        }
+
+        if (screenMaterial.HasProperty("_Smoothness"))
+        {
+            screenMaterial.SetFloat("_Smoothness", 0f);
+        }
+
+        if (screenMaterial.HasProperty("_Glossiness"))
+        {
+            screenMaterial.SetFloat("_Glossiness", 0f);
+        }
+
         if (screenMaterial.HasProperty("_EmissiveColorMap"))
         {
             screenMaterial.SetTexture("_EmissiveColorMap", desktopTexture);
-            screenMaterial.SetColor("_EmissiveColor", Color.white * screenEmissionNits);
+            screenMaterial.SetColor("_EmissiveColor", Color.white * ScreenEmissionStrength);
+            // emission ignores camera exposure so it stays constant and bright
+            // regardless of how dark the room (and its auto-exposure) gets
             if (screenMaterial.HasProperty("_EmissiveExposureWeight"))
             {
                 screenMaterial.SetFloat("_EmissiveExposureWeight", 0f);
+            }
+
+            if (screenMaterial.HasProperty("_UseEmissiveIntensity"))
+            {
+                screenMaterial.SetFloat("_UseEmissiveIntensity", 0f);
             }
 
             screenMaterial.SetTextureScale("_EmissiveColorMap", scale);
@@ -916,6 +1685,10 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         if (terminalWindow != null && terminalWindow.activeSelf)
         {
             targets = terminalHitTargets;
+        }
+        else if (musicWindow != null && musicWindow.activeSelf)
+        {
+            targets = musicHitTargets;
         }
         else if (youtubeWindow != null && youtubeWindow.activeSelf)
         {
@@ -1189,6 +1962,35 @@ public class MonitorYoutubeDesktop : MonoBehaviour
         public void Click()
         {
             click?.Invoke();
+        }
+    }
+
+    // A draggable timeline region: while the mouse is held inside it, the
+    // horizontal cursor position maps to a 0..1 fraction passed to the seek
+    // callback — same feel as the YouTube scrubber.
+    private sealed class DesktopScrubTarget
+    {
+        private readonly Rect rect;
+        private readonly Action<float> scrub;
+
+        public DesktopScrubTarget(Rect rect, Action<float> scrub)
+        {
+            this.rect = rect;
+            this.scrub = scrub;
+        }
+
+        public bool Contains(Vector2 position)
+        {
+            return position.x >= rect.xMin
+                && position.x <= rect.xMax
+                && position.y >= rect.yMin
+                && position.y <= rect.yMax;
+        }
+
+        public void Scrub(Vector2 position)
+        {
+            float fraction = Mathf.Clamp01((position.x - rect.xMin) / Mathf.Max(1f, rect.width));
+            scrub?.Invoke(fraction);
         }
     }
 }
