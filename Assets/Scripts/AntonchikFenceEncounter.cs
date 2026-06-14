@@ -1161,6 +1161,9 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         Rigidbody body = root.AddComponent<Rigidbody>();
         body.mass = 0.2f;
+        BoxCollider collider = root.AddComponent<BoxCollider>();
+        collider.center = new Vector3(0.01f, -0.009f, -0.039f);
+        collider.size = new Vector3(0.019f, 0.086f, 0.155f);
         root.AddComponent<PickupInteractable>();
         return root;
     }
@@ -1293,9 +1296,9 @@ if (Physics.Raycast(rayOrigin, Vector3.down, out hit, 100f))
     if (col == null)
         col = antonInstance.AddComponent<CapsuleCollider>();
 
-    col.center = new Vector3(0f, 1.556444f, 0f);
-    col.height = 2.94f;
-    col.radius = 0.5f;
+    col.center = new Vector3(-0.03f, 3.11f, 0f);
+    col.height = 6.05f;
+    col.radius = 1.17f;
 
     // --- Scale ---
     antonInstance.transform.localScale = new Vector3(0.58f, 0.58f, 0.58f);

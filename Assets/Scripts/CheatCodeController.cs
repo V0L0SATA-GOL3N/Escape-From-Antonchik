@@ -289,6 +289,13 @@ public class CheatCodeController : MonoBehaviour
 
     private void JumpToTask(int task)
     {
+        // Task 3 hands the car keys straight to the player so the escape is
+        // immediately usable, even if the quest director isn't in the scene.
+        if (task == 3)
+        {
+            CarEscapeController.HasCarKeys = true;
+        }
+
         AntonchikFenceEncounter encounter = FindObjectOfType<AntonchikFenceEncounter>();
         if (encounter != null)
         {
