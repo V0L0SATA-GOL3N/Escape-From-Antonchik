@@ -157,11 +157,10 @@ public class ScalapendraLookTrigger : MonoBehaviour
 
     private async Task LoadScalapendraFromGlbAsync()
     {
-        string absolutePath = Path.Combine(Application.dataPath, "..", scalapendraGlbProjectPath);
-        absolutePath = Path.GetFullPath(absolutePath);
-        if (!File.Exists(absolutePath))
+        string absolutePath = ResolveGlbPath();
+        if (string.IsNullOrEmpty(absolutePath))
         {
-            Debug.LogError($"Scalapendra GLB not found at {absolutePath}", this);
+            Debug.LogError($"Scalapendra GLB not found in StreamingAssets ('{Path.GetFileName(scalapendraGlbProjectPath)}') or project path '{scalapendraGlbProjectPath}'.", this);
             return;
         }
 
@@ -193,6 +192,29 @@ public class ScalapendraLookTrigger : MonoBehaviour
         {
             legacyAnimation.Stop();
         }
+    }
+
+    private string ResolveGlbPath()
+    {
+        // In a build the project Assets folder does not ship, so the model is loaded
+        // from StreamingAssets (copied into the player). This also works in the editor.
+        string fileName = Path.GetFileName(scalapendraGlbProjectPath);
+        string streamingPath = Path.Combine(Application.streamingAssetsPath, fileName);
+        if (File.Exists(streamingPath))
+        {
+            return streamingPath;
+        }
+
+#if UNITY_EDITOR
+        // Editor fallback: load directly from the source asset in the project.
+        string projectPath = Path.GetFullPath(Path.Combine(Application.dataPath, "..", scalapendraGlbProjectPath));
+        if (File.Exists(projectPath))
+        {
+            return projectPath;
+        }
+#endif
+
+        return null;
     }
 
     private void SetAnimationEnabled(bool enabled)
