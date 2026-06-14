@@ -74,6 +74,10 @@ public class MenuController : MonoBehaviour
     private Coroutine pauseOpenRoutine;
     private bool introActive;
     private static bool playIntroOnNextGameplayLoad;
+    // Statics survive scene loads but reset when the app launches, so this stays
+    // false only until the main menu is built for the very first time this run.
+    private static bool startupVideosPlayed;
+    private bool startupVideoActive;
     private readonly List<AudioSource> pausedAudioSources = new List<AudioSource>();
     private readonly List<VideoPlayer> pausedVideoPlayers = new List<VideoPlayer>();
 
@@ -105,8 +109,9 @@ public class MenuController : MonoBehaviour
     private void Start()
     {
         // SoftwareCursor registers itself in its own Awake, so show the main-menu
-        // cursor here (after all Awakes) rather than from ConfigureMainMenu.
-        if (mode == MenuMode.MainMenu)
+        // cursor here (after all Awakes) rather than from ConfigureMainMenu. While
+        // the cold-start intro videos play, the playback coroutine owns the cursor.
+        if (mode == MenuMode.MainMenu && !startupVideoActive)
         {
             ShowSoftwareCursor(true);
         }
@@ -150,6 +155,168 @@ public class MenuController : MonoBehaviour
 
         activeMenuPage = mainRoot;
         ShowMainMenu(false);
+
+        TryPlayStartupVideos();
+    }
+
+    // Plays the studio/branding intro videos, but only the first time the main
+    // menu is built this run. Returning to the menu from gameplay re-runs
+    // ConfigureMainMenu, yet startupVideosPlayed is already set, so it no-ops.
+    private void TryPlayStartupVideos()
+    {
+        if (startupVideosPlayed || mode != MenuMode.MainMenu || canvas == null)
+        {
+            return;
+        }
+
+        startupVideosPlayed = true;
+
+        List<VideoClip> clips = LoadStartupClips();
+        if (clips.Count == 0)
+        {
+            return;
+        }
+
+        startupVideoActive = true;
+        StartCoroutine(PlayStartupVideos(clips));
+    }
+
+    private List<VideoClip> LoadStartupClips()
+    {
+        // Order = playback order. Clips live under Assets/Resources/startups so
+        // they ship in the build and load by name without inspector wiring.
+        List<VideoClip> clips = new List<VideoClip>();
+        AddStartupClip(clips, "startups/startup");
+        AddStartupClip(clips, "startups/dolby_startup");
+        return clips;
+    }
+
+    private void AddStartupClip(List<VideoClip> clips, string resourcePath)
+    {
+        VideoClip clip = Resources.Load<VideoClip>(resourcePath);
+        if (clip != null)
+        {
+            clips.Add(clip);
+        }
+    }
+
+    private IEnumerator PlayStartupVideos(List<VideoClip> clips)
+    {
+        ShowSoftwareCursor(false);
+
+        GameObject overlay = CreatePanel("Startup Video Overlay", canvas.transform, Color.black);
+        Stretch(overlay.GetComponent<RectTransform>());
+        overlay.transform.SetAsLastSibling();
+        CanvasGroup group = overlay.AddComponent<CanvasGroup>();
+        group.alpha = 1f;
+        group.blocksRaycasts = true;
+
+        GameObject surfaceObject = new GameObject("Startup Video Surface");
+        surfaceObject.transform.SetParent(overlay.transform, false);
+        RawImage surface = surfaceObject.AddComponent<RawImage>();
+        Stretch(surface.rectTransform);
+        surface.color = Color.black;
+
+        int width = Mathf.Max(2, Screen.width);
+        int height = Mathf.Max(2, Screen.height);
+        RenderTexture renderTexture = new RenderTexture(width, height, 0);
+        renderTexture.Create();
+
+        GameObject playerObject = new GameObject("Startup Video Player");
+        playerObject.transform.SetParent(overlay.transform, false);
+        VideoPlayer videoPlayer = playerObject.AddComponent<VideoPlayer>();
+        AudioSource videoAudio = playerObject.AddComponent<AudioSource>();
+        ConfigureMenuAudioSource(videoAudio);
+
+        videoPlayer.playOnAwake = false;
+        videoPlayer.isLooping = false;
+        videoPlayer.renderMode = VideoRenderMode.RenderTexture;
+        videoPlayer.targetTexture = renderTexture;
+        videoPlayer.aspectRatio = VideoAspectRatio.FitInside;
+        videoPlayer.audioOutputMode = VideoAudioOutputMode.AudioSource;
+        surface.texture = renderTexture;
+
+        // Skip the frame on which the menu became active so the player's own
+        // first frame isn't read as a "skip" keypress.
+        yield return null;
+
+        for (int i = 0; i < clips.Count; i++)
+        {
+            yield return PlaySingleStartupVideo(videoPlayer, videoAudio, surface, clips[i]);
+        }
+
+        surface.texture = null;
+        if (videoPlayer.targetTexture == renderTexture)
+        {
+            videoPlayer.targetTexture = null;
+        }
+
+        renderTexture.Release();
+        Destroy(renderTexture);
+        Destroy(overlay);
+
+        startupVideoActive = false;
+        if (mode == MenuMode.MainMenu)
+        {
+            ShowSoftwareCursor(true);
+        }
+    }
+
+    private IEnumerator PlaySingleStartupVideo(VideoPlayer videoPlayer, AudioSource videoAudio, RawImage surface, VideoClip clip)
+    {
+        if (clip == null)
+        {
+            yield break;
+        }
+
+        // Tint black until the first frame lands so we don't flash the previous
+        // clip's last frame still sitting in the render texture.
+        surface.color = Color.black;
+
+        videoPlayer.clip = clip;
+        videoPlayer.controlledAudioTrackCount = 1;
+        videoPlayer.EnableAudioTrack(0, true);
+        videoPlayer.SetTargetAudioSource(0, videoAudio);
+
+        bool reachedEnd = false;
+        VideoPlayer.EventHandler endHandler = source => reachedEnd = true;
+        videoPlayer.loopPointReached += endHandler;
+
+        videoPlayer.Prepare();
+        for (float elapsed = 0f; !videoPlayer.isPrepared && elapsed < 5f; elapsed += Time.unscaledDeltaTime)
+        {
+            if (StartupSkipRequested())
+            {
+                videoPlayer.loopPointReached -= endHandler;
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        videoPlayer.Play();
+        while (!reachedEnd)
+        {
+            if (videoPlayer.frame > 0)
+            {
+                surface.color = Color.white;
+            }
+
+            if (StartupSkipRequested())
+            {
+                break;
+            }
+
+            yield return null;
+        }
+
+        videoPlayer.loopPointReached -= endHandler;
+        videoPlayer.Stop();
+    }
+
+    private bool StartupSkipRequested()
+    {
+        return Input.anyKeyDown;
     }
 
     private void ConfigureMainMenuLayout()
