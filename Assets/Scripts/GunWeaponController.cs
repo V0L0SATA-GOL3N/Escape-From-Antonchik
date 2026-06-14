@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Rendering.HighDefinition;
 using UnityEngine.UI;
 using TMPro;
 
@@ -14,6 +15,8 @@ public class GunWeaponController : MonoBehaviour
     [SerializeField] private GameObject magazinePrefab;
 
     [Header("Shooting")]
+    [SerializeField] private float muzzleFlashIntensity = 6000f;
+    [SerializeField] private float muzzleFlashDuration = 0.05f;
     [SerializeField] private int magazineSize = 4;
     [SerializeField] private int maxCarriedMagazines = 4;
     [SerializeField] private int startingCarriedMagazines;
@@ -55,6 +58,8 @@ public class GunWeaponController : MonoBehaviour
     private Vector3 slideBaseLocalPosition;
     private Coroutine recoilRoutine;
     private Light muzzleFlashLight;
+    private HDAdditionalLightData muzzleFlashLightData;
+    private float muzzleFlashOffTime;
     private bool heldPoseCached;
     private FirstPersonHandsAnimatorDriver handsAnimatorDriver;
     private bool requestedHandGunPose;
@@ -79,11 +84,28 @@ public class GunWeaponController : MonoBehaviour
 
         if (muzzle != null)
         {
-            muzzleFlashLight = muzzle.gameObject.AddComponent<Light>();
+            muzzleFlashLight = muzzle.gameObject.GetComponent<Light>();
+            if (muzzleFlashLight == null)
+            {
+                muzzleFlashLight = muzzle.gameObject.AddComponent<Light>();
+            }
+
             muzzleFlashLight.type = LightType.Point;
             muzzleFlashLight.color = new Color(1f, 0.62f, 0.22f, 1f);
-            muzzleFlashLight.range = 2f;
-            muzzleFlashLight.intensity = 0f;
+            muzzleFlashLight.range = 4f;
+
+            // In HDRP the rendered intensity is driven by HDAdditionalLightData
+            // (physical units), not Light.intensity. Configure it here so the
+            // flash is visible, and toggle the light with `enabled` so it can
+            // never get stuck on the way Light.intensity = 0 can.
+            muzzleFlashLightData = muzzle.gameObject.GetComponent<HDAdditionalLightData>();
+            if (muzzleFlashLightData == null)
+            {
+                muzzleFlashLightData = muzzle.gameObject.AddComponent<HDAdditionalLightData>();
+            }
+            muzzleFlashLightData.SetIntensity(muzzleFlashIntensity, LightUnit.Lumen);
+
+            muzzleFlashLight.enabled = false;
         }
 
         KeepSkinnedMeshesVisible();
@@ -93,6 +115,10 @@ public class GunWeaponController : MonoBehaviour
 
     private void Update()
     {
+        // Always run, even when the gun isn't held/equipped, so a flash started
+        // on the last shot is guaranteed to be turned off.
+        UpdateMuzzleFlash();
+
         if (pickup == null || !pickup.IsHeld)
         {
             heldPoseCached = false;
@@ -121,6 +147,26 @@ public class GunWeaponController : MonoBehaviour
             shootCamera = Camera.main;
         }
 
+        // When no recoil/reload animation is driving the transform, keep the gun
+        // pinned to its rest pose. This prevents a recoil that was interrupted
+        // (StopCoroutine) from permanently leaving the gun in a kicked position
+        // or rotation.
+        if (recoilRoutine == null && !isReloading)
+        {
+            transform.localPosition = baseLocalPosition;
+            transform.localRotation = baseLocalRotation;
+            if (slide != null)
+            {
+                slide.localPosition = slideBaseLocalPosition;
+            }
+        }
+
+        // Don't fire or reload while the game is paused.
+        if (Time.timeScale <= 0f)
+        {
+            return;
+        }
+
         if (Input.GetButtonDown("Fire1"))
         {
             TryShoot();
@@ -134,6 +180,11 @@ public class GunWeaponController : MonoBehaviour
 
     private void OnDisable()
     {
+        if (muzzleFlashLight != null)
+        {
+            muzzleFlashLight.enabled = false;
+        }
+
         SetHandGunPose(false);
     }
 
@@ -159,6 +210,8 @@ public class GunWeaponController : MonoBehaviour
         {
             audioSource.PlayOneShot(shot);
         }
+
+        TriggerMuzzleFlash();
 
         nextFireTime = Time.time + fireCooldown;
         ammoInMagazine--;
@@ -187,19 +240,54 @@ public class GunWeaponController : MonoBehaviour
             StopCoroutine(recoilRoutine);
         }
 
-        recoilRoutine = StartCoroutine(ShootFeedbackRoutine(true));
+        recoilRoutine = StartCoroutine(ShootFeedbackRoutine());
+    }
+
+    private void TriggerMuzzleFlash()
+    {
+        if (muzzleFlashLight == null)
+        {
+            return;
+        }
+
+        muzzleFlashLight.enabled = true;
+        // Unscaled so the flash still clears if the game is paused (timeScale 0)
+        // right after a shot.
+        muzzleFlashOffTime = Time.unscaledTime + Mathf.Max(0.01f, muzzleFlashDuration);
+    }
+
+    private void UpdateMuzzleFlash()
+    {
+        if (muzzleFlashLight != null && muzzleFlashLight.enabled && Time.unscaledTime >= muzzleFlashOffTime)
+        {
+            muzzleFlashLight.enabled = false;
+        }
     }
 
     private void CacheHeldPose()
     {
-        // The prefab's authored held pose is broken for the current arms rig
-        // (the gun ends up ~16 m and ~4 m out in front), so derive a sane held
-        // pose from the camera every time it's equipped. Cache that as the rest
-        // pose so recoil settles back to it correctly.
-        NormalizeHeldPose();
-
-        baseLocalPosition = transform.localPosition;
-        baseLocalRotation = transform.localRotation;
+        // Prefer the in-hand pose authored on PickupInteractable (Use Custom Held
+        // Pose). Read the override values directly rather than the live transform:
+        // BeginPickup() flags the item equipped before PickupInteractable.AttachTo
+        // actually places it (AttachTo runs partway through the pickup animation),
+        // so transform.localPosition here is a mid-animation value, not the held
+        // pose. Caching that would pin the gun to the wrong spot. Only fall back to
+        // the camera-derived pose when no custom held pose is configured (the
+        // prefab's authored pose is broken for the current arms rig: the gun ends
+        // up ~16 m and ~4 m out in front).
+        if (pickup != null && pickup.TryGetHeldPose(out Vector3 heldPosition, out Quaternion heldRotation))
+        {
+            baseLocalPosition = heldPosition;
+            baseLocalRotation = heldRotation;
+            transform.localPosition = heldPosition;
+            transform.localRotation = heldRotation;
+        }
+        else
+        {
+            NormalizeHeldPose();
+            baseLocalPosition = transform.localPosition;
+            baseLocalRotation = transform.localRotation;
+        }
 
         if (slide != null)
         {
@@ -308,21 +396,20 @@ public class GunWeaponController : MonoBehaviour
             StopCoroutine(recoilRoutine);
         }
 
-        recoilRoutine = StartCoroutine(ShootFeedbackRoutine(false));
+        recoilRoutine = StartCoroutine(ShootFeedbackRoutine());
     }
 
-    private IEnumerator ShootFeedbackRoutine(bool showMuzzleFlash)
+    private IEnumerator ShootFeedbackRoutine()
     {
         const float kickTime = 0.05f;
         const float settleTime = 0.11f;
         Vector3 kickPosition = baseLocalPosition - Vector3.forward * recoilDistance;
-        Quaternion kickRotation = baseLocalRotation * Quaternion.Euler(-recoilRotation, 0f, 0f);
+        // Apply the recoil pitch in the parent (camera) frame, not the gun's own
+        // frame. The held pose yaws the model 90deg (its forward axis isn't the
+        // camera's), so post-multiplying would turn the upward kick into a
+        // sideways twist. Pre-multiplying keeps it a clean pitch-up.
+        Quaternion kickRotation = Quaternion.Euler(-recoilRotation, 0f, 0f) * baseLocalRotation;
         Vector3 slideKickPosition = slideBaseLocalPosition - Vector3.forward * slideKickDistance;
-
-        if (showMuzzleFlash && muzzleFlashLight != null)
-        {
-            muzzleFlashLight.intensity = 5f;
-        }
 
         for (float elapsed = 0f; elapsed < kickTime; elapsed += Time.deltaTime)
         {
@@ -334,11 +421,6 @@ public class GunWeaponController : MonoBehaviour
                 slide.localPosition = Vector3.Lerp(slideBaseLocalPosition, slideKickPosition, t);
             }
             yield return null;
-        }
-
-        if (muzzleFlashLight != null)
-        {
-            muzzleFlashLight.intensity = 0f;
         }
 
         for (float elapsed = 0f; elapsed < settleTime; elapsed += Time.deltaTime)
