@@ -490,7 +490,7 @@ Light:
   m_Type: 2
   m_Shape: 0
   m_Color: {r: 1, g: 0.8235294, b: 0.627451, a: 1}
-  m_Intensity: 59.6831
+  m_Intensity: 126.33253
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -531,9 +531,9 @@ Light:
   m_RenderingLayerMask: 1
   m_Lightmapping: 4
   m_LightShadowCasterMode: 2
-  m_AreaSize: {x: 1, y: 1}
+  m_AreaSize: {x: 0.5, y: 0.5}
   m_BounceIntensity: 1
-  m_ColorTemperature: 6570
+  m_ColorTemperature: 4929
   m_UseColorTemperature: 1
   m_BoundingSphereOverride: {x: 2.7110395e-20, y: 1.010293e-39, z: 1.4278e-41, w: 0}
   m_UseBoundingSphereOverride: 0
@@ -552,7 +552,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7a68c43fe1f2a47cfa234b5eeaa98012, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Intensity: 750
+  m_Intensity: 1587.5414
   m_EnableSpotReflector: 1
   m_LuxAtDistance: 1
   m_InnerSpotPercent: 0
@@ -2018,7 +2018,7 @@ Light:
   m_Type: 2
   m_Shape: 0
   m_Color: {r: 1, g: 0.8235294, b: 0.627451, a: 1}
-  m_Intensity: 59.6831
+  m_Intensity: 221.28853
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -2059,9 +2059,9 @@ Light:
   m_RenderingLayerMask: 1
   m_Lightmapping: 4
   m_LightShadowCasterMode: 2
-  m_AreaSize: {x: 1, y: 1}
+  m_AreaSize: {x: 0.5, y: 0.5}
   m_BounceIntensity: 1
-  m_ColorTemperature: 6570
+  m_ColorTemperature: 3565
   m_UseColorTemperature: 1
   m_BoundingSphereOverride: {x: 7.538593e-20, y: 7.34786e-40, z: 1.6296e-41, w: 0}
   m_UseBoundingSphereOverride: 0
@@ -2080,7 +2080,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7a68c43fe1f2a47cfa234b5eeaa98012, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Intensity: 750
+  m_Intensity: 2780.7937
   m_EnableSpotReflector: 1
   m_LuxAtDistance: 1
   m_InnerSpotPercent: 0
@@ -2495,6 +2495,10 @@ MonoBehaviour:
   desktopSize: {x: 960, y: 540}
   mouseSpeed: 28
   screenEmissionNits: 15
+  musicTracks:
+  - {fileID: 8300000, guid: 28fa39bb6fd934f05bf55e69d73c6581, type: 3}
+  - {fileID: 8300000, guid: 970b5893ba6584b199d6a8c575baf5d4, type: 3}
+  musicTitles: []
 --- !u!114 &2121108724
 MonoBehaviour:
   m_ObjectHideFlags: 0
