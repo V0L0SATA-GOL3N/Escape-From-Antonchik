@@ -58,6 +58,7 @@ public class CarEscapeController : SimpleInteractable
         body.isKinematic = false;
         body.useGravity = true;
         body.interpolation = RigidbodyInterpolation.Interpolate;
+        body.constraints = RigidbodyConstraints.FreezeAll;
 
         if (GetComponentInChildren<Collider>() != null)
         {
@@ -142,7 +143,9 @@ public class CarEscapeController : SimpleInteractable
 
         // slide the camera into the cab
         Bounds bounds = ComputeBounds();
-        Vector3 seatPosition = bounds.center + Vector3.up * (bounds.extents.y * 0.35f) - transform.right * (bounds.extents.x * 0.3f);
+        // Seat offset is authored in the truck's local space, so map it to a
+        // world position relative to the car before sliding the camera in.
+        Vector3 seatPosition = transform.TransformPoint(new Vector3(-0.34f, 1.5f, 0.33f));
         if (cameraTransform != null)
         {
             Vector3 startPosition = cameraTransform.position;
@@ -173,16 +176,18 @@ public class CarEscapeController : SimpleInteractable
         TurnOnHeadlights();
         yield return new WaitForSeconds(1.1f);
 
-        // the gate drags itself open
+        // the gate drags itself open — remember where it stood so the truck
+        // aims at the original opening, not the slid-aside gate.
+        Vector3 gateOrigin = gate != null ? gate.position : Vector3.zero;
         if (gate != null)
         {
-            AudioSource.PlayClipAtPoint(HorrorAudio.GateCreak(), gate.position, 1f);
+            AudioSource.PlayClipAtPoint(HorrorAudio.GateCreak(), gate.position, 10f);
             yield return OpenGateRoutine();
         }
 
         // roll out
         Vector3 driveDirection = gate != null
-            ? (StripY(gate.position - transform.position)).normalized
+            ? (StripY(gateOrigin - transform.position)).normalized
             : transform.forward;
 
         GameObject fade = BuildFadeOverlay(out CanvasGroup fadeGroup);
@@ -216,7 +221,7 @@ public class CarEscapeController : SimpleInteractable
         float width = Mathf.Max(gateBounds.size.x, gateBounds.size.z);
         Vector3 slideDirection = gateBounds.size.x >= gateBounds.size.z ? Vector3.right : Vector3.forward;
         Vector3 start = gate.position;
-        Vector3 end = start + slideDirection * (width * 0.92f);
+        Vector3 end = start + slideDirection * (width * 0.92f * 3f);
 
         const float duration = 3.2f;
         for (float elapsed = 0f; elapsed < duration; elapsed += Time.deltaTime)
