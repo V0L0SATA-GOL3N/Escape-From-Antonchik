@@ -168,11 +168,11 @@ public class FirstPersonController : MonoBehaviour
 
     void Start()
     {
-        // Gameplay keeps a visible OS cursor on screen (mouse-look is driven by
-        // mouse *delta* below, so it still works). Menus and the in-game monitor
-        // manage their own cursor state on top of this.
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        // Gameplay hides and locks the OS cursor (mouse-look is driven by mouse
+        // *delta* below, so it still works). Menus and the in-game monitor manage
+        // their own cursor state on top of this and restore it when they close.
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
 
         if(crosshair)
         {
