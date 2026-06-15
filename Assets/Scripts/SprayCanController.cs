@@ -40,7 +40,7 @@ public class SprayCanController : MonoBehaviour
     [SerializeField] private Vector2 dabSizeRange = new Vector2(0.18f, 0.30f);
     [SerializeField] private float dabDepth = 0.4f;
     [SerializeField] private float spreadRadius = 0.025f;
-    [Tooltip("Max decals kept alive. Oldest are recycled past this.")]
+    [Tooltip("Unused: graffiti is now permanent and never recycled.")]
     [SerializeField] private int maxDecals = 500;
 
     [Header("Paint")]
@@ -149,6 +149,32 @@ public class SprayCanController : MonoBehaviour
         return infinitePaint || paintRemaining > 0f;
     }
 
+    // --- cross-scene carry-over ---
+    // The spray prefab ships without its sound clips and tuned spray values
+    // (those were authored on the scene instance), so InventoryCarryOver copies
+    // the live sounds across the scene load and re-applies settings on restore.
+    public void GetCarrySounds(out AudioClip painting, out AudioClip rattle)
+    {
+        painting = paintingSound;
+        rattle = rattleSound;
+    }
+
+    public void ApplyCarryOverSettings(float newRange, float newForce, float newInterval, AudioClip painting, AudioClip rattle)
+    {
+        range = newRange;
+        paintForce = Mathf.Clamp(newForce, 0.1f, 4f);
+        sprayInterval = newInterval;
+        if (painting != null)
+        {
+            paintingSound = painting;
+        }
+
+        if (rattle != null)
+        {
+            rattleSound = rattle;
+        }
+    }
+
     private void SprayDab()
     {
         if (sprayCamera == null)
@@ -210,16 +236,8 @@ public class SprayCanController : MonoBehaviour
             decalRoot = new GameObject("GraffitiDecals").transform;
         }
 
-        if (liveDecals.Count >= Mathf.Max(1, maxDecals))
-        {
-            GameObject recycled = liveDecals.Dequeue();
-            if (recycled != null)
-            {
-                liveDecals.Enqueue(recycled);
-                return recycled;
-            }
-        }
-
+        // Graffiti is permanent: always create a fresh decal so existing paint is
+        // never relocated/recycled away.
         GameObject go = new GameObject("Graffiti");
         go.transform.SetParent(decalRoot, true);
         go.AddComponent<DecalProjector>();

@@ -315,6 +315,10 @@ public class CheatCodeController : MonoBehaviour
             SetNoclip(false);
         }
 
+        // Carry the player's inventory across the cheat jump, same as the real
+        // main-door transition (MainDoorSceneTransition.LoadTargetScene). Without
+        // this, cheat-jumping silently empties your hands.
+        InventoryCarryOver.Capture(FindObjectOfType<DoorRaycastInteractor>());
         SceneManager.LoadScene(sceneName);
     }
 

@@ -48,6 +48,8 @@ public static class YardAssetLibraryBaker
         changed |= Assign(ref lib.magazinePrefab, "Assets/Prefabs/mag Variant.prefab", force);
         changed |= Assign(ref lib.snusPrefab, "Assets/Prefabs/snus.prefab", force);
         changed |= Assign(ref lib.truckPrefab, "Assets/Pickup/Prefabs/PickUp_Damaged.prefab", force);
+        changed |= Assign(ref lib.jamesonPrefab, "Assets/Prefabs/Jameson.prefab", force);
+        changed |= Assign(ref lib.sprayCanPrefab, "Assets/Prefabs/spraypaint_can_mtn_hardcore.prefab", force);
         changed |= Assign(ref lib.idleClip, "Assets/3d/Standing Idle.fbx", force);
         changed |= Assign(ref lib.walkClip, "Assets/Animations/Walking.fbx", force);
         changed |= Assign(ref lib.typingSound, "Assets/SFX/cutscene_typing.wav", force);

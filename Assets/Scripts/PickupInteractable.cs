@@ -27,6 +27,13 @@ public class PickupInteractable : MonoBehaviour
     public bool IsHeld { get; private set; }
     public bool IsEquipped { get; private set; }
     public float InteractionDistance => interactionDistance;
+
+    // Cross-scene restored pickups get a wider reach so they're easier to grab
+    // again in the yard. See InventoryCarryOver.RestoreInto.
+    public void SetInteractionDistance(float distance)
+    {
+        interactionDistance = distance;
+    }
     public bool MoveFingersWhileWalking => moveFingersWhileWalking;
     public string DisplayName => string.IsNullOrWhiteSpace(gameObject.name) ? "Object" : gameObject.name;
 
