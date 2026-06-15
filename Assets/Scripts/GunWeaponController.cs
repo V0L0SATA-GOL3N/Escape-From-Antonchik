@@ -167,6 +167,14 @@ public class GunWeaponController : MonoBehaviour
             return;
         }
 
+        // Don't fire or reload during an Antonchik dialog/cutscene. The dialog
+        // frees the cursor so the player can click choices, and a left-click on
+        // a choice must not also loose a round.
+        if (AntonchikFenceEncounter.SequenceActive)
+        {
+            return;
+        }
+
         if (Input.GetButtonDown("Fire1"))
         {
             TryShoot();
