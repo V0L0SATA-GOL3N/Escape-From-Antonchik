@@ -72,6 +72,9 @@ public class AntonchikFenceEncounter : MonoBehaviour
     private ScreamerController screamerController;
     private GameObject snusInstance;
     private GameObject gateKeysInstance;
+    private Collider groundFloorCollider;
+    private readonly List<Bounds> spawnBlockers = new List<Bounds>();
+    private bool spawnBlockersGathered;
 
     private bool encounterStarted;
     private bool armed;
@@ -1083,8 +1086,67 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         Vector3 spot = PickHiddenSpot(new[] { "fence", "fence.001", "fence.002", "fence.003" });
         gateKeysInstance = BuildKeysProp();
-        gateKeysInstance.transform.position = spot + Vector3.up * 0.08f;
+        gateKeysInstance.transform.position = spot;
+        RestOnGround(gateKeysInstance, spot.y, 0.02f);
         AddSearchGlow(gateKeysInstance, new Color(0.95f, 0.75f, 0.25f, 1f));
+    }
+
+    // Debug cheat: scatters a pile of key props across the yard floor. Used to
+    // eyeball the ground-only spawn placement — every prop should land flat on
+    // the ground near a fence, never floating, on a roof, or past the fence line.
+    // These are throwaway props (not the quest key), so no search glow is added
+    // and picking one up does not advance the quest.
+    public void CheatSpawnDebugKeys(int count)
+    {
+        string[] anchors = { "fence", "fence.001", "fence.002", "fence.003" };
+        for (int i = 0; i < count; i++)
+        {
+            Vector3 spot = PickHiddenSpot(anchors);
+            GameObject keys = BuildKeysProp();
+            keys.name = "Ключи (debug)";
+            keys.transform.position = spot;
+            RestOnGround(keys, spot.y, 0.02f);
+        }
+    }
+
+    // Debug cheat: lays key props out on a grid spanning the whole ground floor so
+    // you can see spawn coverage across the entire map. Each cell is validated the
+    // same way real spawns are, so a marker only appears where there is actual
+    // walkable ground — the gaps map out roofs, the exit platform, object footprints
+    // and anything off the platform. Markers are kinematic so they stay put on the
+    // grid instead of rolling.
+    public void CheatSpawnDebugSpawnPoints(float spacing = 3f)
+    {
+        Collider ground = ResolveGroundFloor();
+        if (ground == null)
+        {
+            return;
+        }
+
+        Bounds bounds = ground.bounds;
+        spacing = Mathf.Max(0.5f, spacing);
+        for (float x = bounds.min.x + 1f; x <= bounds.max.x - 1f; x += spacing)
+        {
+            for (float z = bounds.min.z + 1f; z <= bounds.max.z - 1f; z += spacing)
+            {
+                Vector3 column = new Vector3(x, bounds.max.y + 2f, z);
+                if (!TrySnapToGround(column, ground, out Vector3 spot))
+                {
+                    continue;
+                }
+
+                GameObject keys = BuildKeysProp();
+                keys.name = "Ключи (debug point)";
+                keys.transform.position = spot;
+                RestOnGround(keys, spot.y, 0.02f);
+
+                Rigidbody body = keys.GetComponent<Rigidbody>();
+                if (body != null)
+                {
+                    body.isKinematic = true;
+                }
+            }
+        }
     }
 
     private Vector3 PickHiddenSpot(string[] anchorNames)
@@ -1095,14 +1157,228 @@ public class AntonchikFenceEncounter : MonoBehaviour
             ? anchor.transform.position
             : (playerTransform != null ? playerTransform.position : Vector3.zero);
 
-        Vector2 jitter = UnityEngine.Random.insideUnitCircle * 2.5f;
-        Vector3 candidate = basePoint + new Vector3(jitter.x, 0f, jitter.y);
-        if (Physics.Raycast(candidate + Vector3.up * 8f, Vector3.down, out RaycastHit hit, 30f, ~0, QueryTriggerInteraction.Ignore))
+        Collider ground = ResolveGroundFloor();
+        if (ground == null)
         {
-            return hit.point;
+            return basePoint;
         }
 
-        return candidate;
+        Bounds bounds = ground.bounds;
+        Vector3 center = bounds.center;
+
+        // Anchors like fence posts sit at the yard's edge, so sample *toward* the
+        // floor's interior. Every candidate is then clamped inside the floor
+        // footprint, so jitter can never throw a spot past the fence into the
+        // void (where the old code left keys floating out of bounds).
+        Vector3 inward = center - basePoint;
+        inward.y = 0f;
+        inward = inward.sqrMagnitude > 0.01f ? inward.normalized : Vector3.forward;
+        Vector3 lateral = Vector3.Cross(Vector3.up, inward);
+
+        for (int attempt = 0; attempt < 24; attempt++)
+        {
+            float forward = UnityEngine.Random.Range(0.8f, 3.2f);
+            float side = UnityEngine.Random.Range(-1.6f, 1.6f);
+            Vector3 candidate = basePoint + inward * forward + lateral * side;
+            candidate.x = Mathf.Clamp(candidate.x, bounds.min.x + 0.4f, bounds.max.x - 0.4f);
+            candidate.z = Mathf.Clamp(candidate.z, bounds.min.z + 0.4f, bounds.max.z - 0.4f);
+
+            if (TrySnapToGround(candidate, ground, out Vector3 grounded))
+            {
+                return grounded;
+            }
+        }
+
+        // Guaranteed safe spot: straight down onto the floor at the yard centre,
+        // which is always clear, solid ground. This never returns a floating or
+        // out-of-bounds point.
+        Vector3 centreColumn = new Vector3(center.x, bounds.max.y + 2f, center.z);
+        if (TrySnapToGround(centreColumn, ground, out Vector3 centreSpot))
+        {
+            return centreSpot;
+        }
+
+        return new Vector3(center.x, bounds.max.y, center.z);
+    }
+
+    // Resolves the walkable ground surface once. The yard's floor is an object
+    // named "ground" that carries TWO colliders: a large convex mesh (the real
+    // walkable surface) and a tiny 2x2 box. We want the big one, so we pick the
+    // collider with the largest XZ footprint among every object named "ground".
+    // Choosing by footprint also sidesteps GameObject.Find ambiguity (the model
+    // root is *also* named "ground") and never latches onto the wrong collider.
+    private Collider ResolveGroundFloor()
+    {
+        if (groundFloorCollider != null)
+        {
+            return groundFloorCollider;
+        }
+
+        float bestFootprint = 0f;
+        foreach (Transform candidate in FindObjectsOfType<Transform>())
+        {
+            if (candidate.name != "ground")
+            {
+                continue;
+            }
+
+            foreach (Collider collider in candidate.GetComponents<Collider>())
+            {
+                Vector3 size = collider.bounds.size;
+                float footprint = size.x * size.z;
+                if (footprint > bestFootprint)
+                {
+                    bestFootprint = footprint;
+                    groundFloorCollider = collider;
+                }
+            }
+        }
+
+        if (groundFloorCollider == null)
+        {
+            // Fallback: whatever the player is standing on, skipping their own
+            // capsule so we cache the floor and not the player.
+            Transform probe = playerTransform != null ? playerTransform : transform;
+            RaycastHit[] hits = Physics.RaycastAll(probe.position + Vector3.up * 5f, Vector3.down, 60f, ~0, QueryTriggerInteraction.Ignore);
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            for (int i = 0; i < hits.Length; i++)
+            {
+                if (IsPlayerCollider(hits[i].collider))
+                {
+                    continue;
+                }
+
+                groundFloorCollider = hits[i].collider;
+                break;
+            }
+        }
+
+        return groundFloorCollider;
+    }
+
+    // Builds, once, the XZ footprints that props must not spawn under: the house
+    // and every lamp. The building has a collider but its roof sits above the
+    // sample column, and the lamps have no colliders at all, so neither is caught
+    // by the downward raycast — we reject by footprint instead.
+    private void EnsureSpawnBlockers()
+    {
+        if (spawnBlockersGathered)
+        {
+            return;
+        }
+
+        spawnBlockersGathered = true;
+        spawnBlockers.Clear();
+
+        foreach (Transform candidate in FindObjectsOfType<Transform>())
+        {
+            bool isBlocker = candidate.name == "building" || candidate.name.StartsWith("lamp");
+            if (!isBlocker)
+            {
+                continue;
+            }
+
+            // Only the yard-level objects (direct children of the model root).
+            if (candidate.parent == null || candidate.parent.name != "ground")
+            {
+                continue;
+            }
+
+            Renderer[] renderers = candidate.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length == 0)
+            {
+                continue;
+            }
+
+            Bounds footprint = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+            {
+                footprint.Encapsulate(renderers[i].bounds);
+            }
+
+            // Pad the XZ extent so keys keep a little clearance from walls/poles.
+            footprint.Expand(new Vector3(0.6f, 0f, 0.6f));
+            spawnBlockers.Add(footprint);
+        }
+    }
+
+    // True when the point sits under the house or a lamp and should be skipped.
+    private bool IsBlockedSpot(Vector3 point)
+    {
+        EnsureSpawnBlockers();
+        for (int i = 0; i < spawnBlockers.Count; i++)
+        {
+            Bounds footprint = spawnBlockers[i];
+            if (point.x >= footprint.min.x && point.x <= footprint.max.x &&
+                point.z >= footprint.min.z && point.z <= footprint.max.z)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsPlayerCollider(Collider collider)
+    {
+        if (collider == null)
+        {
+            return false;
+        }
+
+        if (playerController != null && collider.transform.IsChildOf(playerController.transform))
+        {
+            return true;
+        }
+
+        return playerRigidbody != null && collider.attachedRigidbody == playerRigidbody;
+    }
+
+    // Casts a vertical column at the given position and reports where it meets the
+    // ground. Fence posts and the gate are stepped over so props rest beside them
+    // rather than balanced on a rail; the first solid surface after that must be
+    // the ground floor, otherwise the spot is rejected — that keeps props off
+    // roofs, the exit platform and out of the insides of yard objects.
+    private bool TrySnapToGround(Vector3 column, Collider ground, out Vector3 point)
+    {
+        point = column;
+        RaycastHit[] hits = Physics.RaycastAll(column + Vector3.up * 8f, Vector3.down, 30f, ~0, QueryTriggerInteraction.Ignore);
+        if (hits.Length == 0)
+        {
+            return false;
+        }
+
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        for (int i = 0; i < hits.Length; i++)
+        {
+            Collider hit = hits[i].collider;
+            if (fenceColliders.Contains(hit))
+            {
+                continue;
+            }
+
+            // Compare by GameObject, not collider reference: the floor carries
+            // both a MeshCollider and a BoxCollider, and the ray may report either.
+            if (ground == null || hit == ground || hit.gameObject == ground.gameObject)
+            {
+                // Even on valid ground, skip spots tucked under the house or a
+                // lamp — those structures don't block the column from above.
+                if (IsBlockedSpot(hits[i].point))
+                {
+                    return false;
+                }
+
+                point = hits[i].point;
+                return true;
+            }
+
+            // First real surface under the column is something other than the
+            // ground (a roof, the exit platform, a prop). Reject so the caller
+            // resamples an open spot instead of burying the item.
+            return false;
+        }
+
+        return false;
     }
 
     // Lifts a freshly spawned prop so its lowest visible point sits just above

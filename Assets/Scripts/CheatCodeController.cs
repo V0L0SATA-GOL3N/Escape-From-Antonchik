@@ -180,39 +180,74 @@ public class CheatCodeController : MonoBehaviour
             case "noclip":
             case "fly":
                 SetNoclip(!noclipEnabled);
+                Debug.Log("Noclip enabled");
                 break;
             case "clip":
             case "walk":
                 SetNoclip(false);
+                Debug.Log("Noclip disabled");
                 break;
             case "scene2":
             case "gamescene":
                 LoadCheatScene(scene2Name);
+                Debug.Log("Loading scene2");
                 break;
             case "scene3":
             case "continuegamescene":
                 LoadCheatScene(scene3Name);
+                Debug.Log("loading scene3");
                 break;
             case "task1":
             case "snus":
                 JumpToTask(1);
+                Debug.Log("task1");
                 break;
             case "task2":
             case "keys":
                 JumpToTask(2);
+                Debug.Log("task2");
                 break;
             case "task3":
             case "car":
                 JumpToTask(3);
+                Debug.Log("task3");
                 break;
             case "stats":
             case "fps":
                 statsEnabled = !statsEnabled;
+                Debug.Log("stats toggled");
                 break;
             case "gun":
             case "ammo":
                 GiveGunCheat();
+                Debug.Log("Gun given");
                 break;
+            case "debugitemspawn":
+                SpawnDebugKeysCheat(100);
+                Debug.Log("debug item spawn");
+                break;
+            case "debugspawnpoints":
+                SpawnDebugSpawnPointsCheat();
+                Debug.Log("debug points spawn");
+                break;
+        }
+    }
+
+    private void SpawnDebugKeysCheat(int count)
+    {
+        AntonchikFenceEncounter encounter = FindObjectOfType<AntonchikFenceEncounter>();
+        if (encounter != null)
+        {
+            encounter.CheatSpawnDebugKeys(count);
+        }
+    }
+
+    private void SpawnDebugSpawnPointsCheat()
+    {
+        AntonchikFenceEncounter encounter = FindObjectOfType<AntonchikFenceEncounter>();
+        if (encounter != null)
+        {
+            encounter.CheatSpawnDebugSpawnPoints();
         }
     }
 
