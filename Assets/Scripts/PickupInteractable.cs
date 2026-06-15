@@ -41,6 +41,11 @@ public class PickupInteractable : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         audioSource = audioSource != null ? audioSource : GetComponent<AudioSource>();
+        // PlayOneShot plays silence in a build if the clip's PCM data isn't
+        // resident yet (unlike clip+Play, it won't block to load). Preload so the
+        // first pickup / drop is audible in players, not just the editor.
+        PreloadAudio(pickupSound);
+        PreloadAudio(dropOnFloorSound);
         RefreshColliders();
         RefreshRenderers();
         originalParent = transform.parent;
@@ -322,6 +327,14 @@ public class PickupInteractable : MonoBehaviour
         }
 
         audioSource.PlayOneShot(clip);
+    }
+
+    private static void PreloadAudio(AudioClip clip)
+    {
+        if (clip != null && clip.loadState != AudioDataLoadState.Loaded)
+        {
+            clip.LoadAudioData();
+        }
     }
 
     private void EnsureDropColliders()

@@ -32,7 +32,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
     [Header("Dialog")]
     [SerializeField] private string speakerName = "АНТОНЧИК";
-    [SerializeField] private float lettersPerSecond = 14f;
+    private float lettersPerSecond = 18f;
     [SerializeField] private float replyTimeLimit = 10f;
 
     [Header("Quest Props")]
@@ -60,7 +60,6 @@ public class AntonchikFenceEncounter : MonoBehaviour
     private GameObject antonInstance;
     private AntonchikPuppeteer puppeteer;
     private SimpleInteractable antonTalk;
-    private Light rimLight;
     private Canvas encounterCanvas;
     private GameObject dialogRoot;
     private TextMeshProUGUI speakerLabel;
@@ -554,7 +553,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
     {
         stage = QuestStage.FindSnus;
         SpawnSnusInYard();
-        TaskHud.SetObjective($"Найди <color={TaskHud.Highlight}>снюс</color> во дворе и принеси Антончику");
+        TaskHud.SetObjective($"Найди <color={TaskHud.Highlight}>буст</color> во дворе и принеси Антончику");
     }
 
     private void StartGateKeysTask()
@@ -658,13 +657,14 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         nodes["intro"] = new DialogNode
         {
-            Text = "Стоять. Ты кто такой и что забыл на моей территории?.. Деньги есть? Или пивко?",
+            Text = "Стоять. Ты кто такой и что забыл на моей территории?.. У тебя есть мой буст? Или выпить что-нибудь?",
             Choices =
             {
-                new DialogChoice { Text = "Мужчина, денег нет", TrustDelta = -20, NextId = "angry" },
+                new DialogChoice { Text = "Мужчина, денег нет", TrustDelta = -20, NextId = "execution" },
+                new DialogChoice { Text = "Пососи сука нихуя нету", TrustDelta = -20, NextId = "angry" },
                 new DialogChoice
                 {
-                    Text = "Денег нет, но есть вискарь. Jameson. Будешь?",
+                    Text = "Денег нет, но есть пойло. Jameson. Будешь?",
                     VisibleIf = HasJameson,
                     TrustDelta = 40,
                     Effect = () => GiveItemToAnton("Jameson"),
@@ -676,13 +676,13 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         nodes["angry"] = new DialogNode
         {
-            Text = "Денег нет?.. Плохо начинаешь, дружок. У меня тут люди пропадают. Последний шанс: чем ты мне полезен?",
+            Text = "Денег нет?.. Сосать не буду. Последний шанс: чем ты мне полезен?",
             Choices =
             {
                 new DialogChoice { Text = "Ничем. Отойди от меня", TrustDelta = -40, NextId = "execution" },
                 new DialogChoice
                 {
-                    Text = "Стой-стой! Вот, вискарь. Jameson. Держи",
+                    Text = "Стой! Вот, пойло. Jameson. Держи",
                     VisibleIf = HasJameson,
                     TrustDelta = 35,
                     Effect = () => GiveItemToAnton("Jameson"),
@@ -694,13 +694,13 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         nodes["jameson"] = new DialogNode
         {
-            Text = "Оп-па... Джеймсончик! Уважаю. Сразу видно — человек культурный. Ладно, живи пока.",
+            Text = "Оп-па... Джеймсончик! Народ Уважает. Сразу видно — человек культурный.",
             NextId = "tasks_intro_friendly"
         };
 
         nodes["tasks_intro"] = new DialogNode
         {
-            Text = "Слушай сюда. Видишь тачку у ворот? Моя. Хочешь свалить — заработай ключи. Сделаешь пару дел — отпущу. Накосячишь — закопаю за сараем.",
+            Text = "Слушай сюда. Видишь тачку у ворот? Моя. Хочешь выехать - заработай ключи. Сделаешь пару дел - отпущу.",
             NextId = "task_snus"
         };
 
@@ -712,12 +712,12 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         nodes["task_snus"] = new DialogNode
         {
-            Text = "Первое. Я где-то во дворе посеял снюс. Без него я злой, а тебе злой Антончик не нужен. Найди и принеси.",
+            Text = "Первое. Я где-то во дворе посеял буст. Без него я злой, а тебе злой Антончик не нужен. Найди и принеси.",
             Choices =
             {
                 new DialogChoice
                 {
-                    Text = "Держи, у меня как раз есть снюс",
+                    Text = "Держи, у меня есть снюс",
                     VisibleIf = HasSnus,
                     TrustDelta = 20,
                     Effect = () => GiveItemToAnton("snus"),
@@ -729,7 +729,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         nodes["task_snus_go"] = new DialogNode
         {
-            Text = "Давай. И не вздумай бежать — у меня тут вся территория под присмотром. Кое-кто пострашнее меня по двору ползает.",
+            Text = "Давай. И не вздумай бежать - у меня тут вся территория под присмотром.",
             Effect = () => SetStageRoutine(QuestStage.FindSnus)
         };
 
@@ -741,26 +741,26 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         nodes["snus_reminder"] = new DialogNode
         {
-            Text = "Где мой снюс? Без снюса не возвращайся."
+            Text = "Где мой буст? Без буст не возвращайся."
         };
 
         nodes["snus_return"] = new DialogNode
         {
-            Text = "Нашёл? Ну-ка дай сюда.",
+            Text = "Нашёл? И что это бля? Ну ладно, пойдет",
             Effect = () => GiveItemToAnton("snus"),
             NextId = "snus_thanks"
         };
 
         nodes["snus_thanks"] = new DialogNode
         {
-            Text = "Воо, красавчик. Сразу жить легче стало. Половина дела сделана.",
+            Text = "Воо, красавчик. Сразу жить легче стало. Половина дела сделана. Не буст конечно ну и похуй, этим тожеь можно обьебаться",
             Effect = () => TrustRoutine(15),
             NextId = "task_keys"
         };
 
         nodes["task_keys"] = new DialogNode
         {
-            Text = "Теперь серьёзное. Я потерял ключи от ворот, когда от... неважно от кого бегал. Где-то у забора валяются. Найди — и поговорим о тачке.",
+            Text = "Теперь серьёзное. Я потерял ключи от ворот, когда от... неважно от кого бегал. Где-то у забора валяются. Найди и поговорим о машине.",
             Choices =
             {
                 new DialogChoice { Text = "Понял. У какого забора?", NextId = "task_keys_hint" },
@@ -802,7 +802,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
         nodes["farewell"] = new DialogNode
         {
             Text = trust >= 50
-                ? "И вот ещё что... ты нормальный мужик. Заезжай, если что. Снюс с тебя."
+                ? "И вот ещё что... ты нормальный мужик. Заезжай, если что. Буст бери с собой."
                 : "И не возвращайся. Второй раз я не такой добрый.",
             Effect = AntonWalksAway
         };
@@ -838,7 +838,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
             if (currentId == "farewell")
             {
                 node.Text = trust >= 50
-                    ? "И вот ещё что... ты нормальный мужик. Заезжай, если что. Снюс с тебя."
+                    ? "И вот ещё что... ты нормальный мужик. Заезжай, если что. Буст с тебя."
                     : "И не возвращайся. Второй раз я не такой добрый.";
             }
 
@@ -908,19 +908,6 @@ public class AntonchikFenceEncounter : MonoBehaviour
     private void Trust(int delta)
     {
         trust = Mathf.Clamp(trust + delta, -100, 100);
-        UpdateRimLight();
-    }
-
-    private void UpdateRimLight()
-    {
-        if (rimLight == null)
-        {
-            return;
-        }
-
-        // the colder the trust, the redder the light behind him
-        float anger = Mathf.InverseLerp(40f, 0f, trust);
-        rimLight.color = Color.Lerp(new Color(0.55f, 0.65f, 1f), new Color(1f, 0.12f, 0.06f), anger);
     }
 
     private IEnumerator SetStageRoutine(QuestStage newStage)
@@ -1069,7 +1056,9 @@ public class AntonchikFenceEncounter : MonoBehaviour
             return;
         }
 
-        Vector3 spot = PickHiddenSpot(new[] { "box", "chair", "trees2", "lamp.004", "trees1.001" });
+        // Bias well into the yard: the snus anchors (trees / lamp / box) sit at
+        // the perimeter, so the default inward range can leave it behind the fence.
+        Vector3 spot = PickHiddenSpot(new[] { "box", "chair", "trees2", "lamp.004", "trees1.001" }, 2.5f, 4.5f);
         snusInstance = Instantiate(snusPrefab, spot, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f));
         snusInstance.name = "snus";
         BuiltinPipelineCompatibility.PatchSpawnedObject(snusInstance);
@@ -1149,7 +1138,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
         }
     }
 
-    private Vector3 PickHiddenSpot(string[] anchorNames)
+    private Vector3 PickHiddenSpot(string[] anchorNames, float inwardMin = 0.8f, float inwardMax = 3.2f)
     {
         string anchorName = anchorNames[UnityEngine.Random.Range(0, anchorNames.Length)];
         GameObject anchor = GameObject.Find(anchorName);
@@ -1177,7 +1166,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
 
         for (int attempt = 0; attempt < 24; attempt++)
         {
-            float forward = UnityEngine.Random.Range(0.8f, 3.2f);
+            float forward = UnityEngine.Random.Range(inwardMin, inwardMax);
             float side = UnityEngine.Random.Range(-1.6f, 1.6f);
             Vector3 candidate = basePoint + inward * forward + lateral * side;
             candidate.x = Mathf.Clamp(candidate.x, bounds.min.x + 0.4f, bounds.max.x - 0.4f);
@@ -1603,7 +1592,6 @@ if (Physics.Raycast(rayOrigin, Vector3.down, out hit, 100f))
         puppeteer = antonInstance.AddComponent<AntonchikPuppeteer>();
         puppeteer.Initialise();
 
-        CreateAntonRimLight(spawnPosition, backDirection);
         BuiltinPipelineCompatibility.PatchSpawnedObject(antonInstance);
     }
 
@@ -1638,26 +1626,6 @@ if (Physics.Raycast(rayOrigin, Vector3.down, out hit, 100f))
             capsule.center = Vector3.up * 0.9f;
             capsule.height = 1.8f;
             capsule.radius = 0.35f;
-        }
-    }
-
-    private void CreateAntonRimLight(Vector3 antonPosition, Vector3 awayFromPlayer)
-    {
-        GameObject rimObject = new GameObject("Antonchik Rim Light");
-        rimObject.transform.SetParent(antonInstance.transform, true);
-        rimObject.transform.position = antonPosition + awayFromPlayer * 1.4f + Vector3.up * 2.4f;
-
-        rimLight = rimObject.AddComponent<Light>();
-        rimLight.type = LightType.Point;
-        rimLight.color = new Color(0.55f, 0.65f, 1f, 1f);
-        rimLight.intensity = 2.2f;
-        rimLight.range = 5f;
-
-        if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null)
-        {
-            var hdData = rimObject.AddComponent<UnityEngine.Rendering.HighDefinition.HDAdditionalLightData>();
-            hdData.SetIntensity(900f, UnityEngine.Rendering.HighDefinition.LightUnit.Lumen);
-            hdData.affectsVolumetric = true;
         }
     }
 

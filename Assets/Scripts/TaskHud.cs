@@ -1,7 +1,6 @@
 using System.Collections;
 using TMPro;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 // GTA5-style objective display: small caps text at the bottom centre of the
@@ -356,7 +355,7 @@ public static class GameOverScreen
             CreateButton(blackout.transform, "Начать заново", new Vector2(0f, -130f), () =>
             {
                 Time.timeScale = 1f;
-                SceneLoadingScreen.Load(SceneManager.GetActiveScene().name);
+                SceneLoadingScreen.Load("gamePlay");
             });
             CreateButton(blackout.transform, "Главное меню", new Vector2(0f, -220f), () =>
             {
