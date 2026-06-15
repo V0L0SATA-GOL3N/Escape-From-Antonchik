@@ -72,10 +72,13 @@ public class SprayCanController : MonoBehaviour
     private float paintRemaining;
     private float nextSprayTime;
     private Texture2D sprayTexture;
+    private AudioSource sprayLoopSource;
     private AudioClip rattleClip;
     private readonly Dictionary<int, Material> decalMaterials = new Dictionary<int, Material>();
     private readonly Queue<GameObject> liveDecals = new Queue<GameObject>();
     private Transform decalRoot;
+    private Material baseDecalMaterial;
+    private bool baseDecalResolved;
 
     private void Awake()
     {
@@ -92,6 +95,65 @@ public class SprayCanController : MonoBehaviour
         EnsureSprayAudioSource();
         EnsureHud();
         UpdateHud(false);
+    }
+
+    private void Start()
+    {
+        // Move the first-spray cost to scene load so the initial burst doesn't
+        // stall the frame.
+        StartCoroutine(WarmUp());
+    }
+
+    // Pre-builds everything the first spray would otherwise create lazily:
+    // the procedural coverage texture, every palette decal material, the HDRP
+    // DBuffer shader variant (compiled the first time a decal is drawn), and the
+    // audio clips' PCM data. Spread over a couple of frames so the warm-up itself
+    // doesn't spike.
+    private System.Collections.IEnumerator WarmUp()
+    {
+        // 128x128 Perlin texture + mipmaps — the biggest single CPU cost.
+        GetSprayTexture();
+        yield return null;
+
+        // Material creation + HDRP keyword/pass setup for each colour.
+        int count = palette != null ? palette.Length : 0;
+        for (int i = 0; i < count; i++)
+        {
+            GetDecalMaterial(i);
+        }
+        yield return null;
+
+        // Draw one throwaway decal far below the world so HDRP compiles the
+        // DBuffer projector shader variant now instead of hitching on the first
+        // visible dab.
+        Material warm = GetDecalMaterial(0);
+        if (warm != null)
+        {
+            GameObject probe = new GameObject("GraffitiWarmup");
+            probe.transform.position = new Vector3(0f, -1000f, 0f);
+            DecalProjector dp = probe.AddComponent<DecalProjector>();
+            dp.material = warm;
+            dp.size = new Vector3(0.001f, 0.001f, 0.001f);
+            dp.fadeFactor = 1f;
+            yield return null;
+            yield return null;
+            Destroy(probe);
+        }
+
+        // Preload audio so the rattle / hiss actually play in built players.
+        // Streamed or Load-In-Background clips have no PCM data resident on
+        // first use, so the first PlayOneShot is silent in a build even though
+        // it works in the editor (where data is already loaded).
+        PreloadAudio(paintingSound);
+        PreloadAudio(rattleSound);
+    }
+
+    private static void PreloadAudio(AudioClip clip)
+    {
+        if (clip != null && clip.loadState != AudioDataLoadState.Loaded)
+        {
+            clip.LoadAudioData();
+        }
     }
 
     private void Update()
@@ -167,11 +229,13 @@ public class SprayCanController : MonoBehaviour
         if (painting != null)
         {
             paintingSound = painting;
+            PreloadAudio(paintingSound);
         }
 
         if (rattle != null)
         {
             rattleSound = rattle;
+            PreloadAudio(rattleSound);
         }
     }
 
@@ -211,6 +275,12 @@ public class SprayCanController : MonoBehaviour
         Vector2 jitter = Random.insideUnitCircle * (spreadRadius * force);
         Vector3 point = hit.point + right * jitter.x + up * jitter.y;
 
+        Material decalMaterial = GetDecalMaterial(colorIndex);
+        if (decalMaterial == null)
+        {
+            return;
+        }
+
         GameObject go = AcquireDecal();
         go.transform.SetPositionAndRotation(point, Quaternion.LookRotation(-normal, up));
         go.transform.Rotate(0f, 0f, Random.Range(0f, 360f), Space.Self);
@@ -219,7 +289,7 @@ public class SprayCanController : MonoBehaviour
         float dabSize = Random.Range(dabSizeRange.x, dabSizeRange.y) * force;
         projector.size = new Vector3(dabSize, dabSize, dabDepth);
         projector.pivot = Vector3.zero;
-        projector.material = GetDecalMaterial(colorIndex);
+        projector.material = decalMaterial;
         projector.fadeFactor = 1f;
         go.SetActive(true);
 
@@ -262,6 +332,30 @@ public class SprayCanController : MonoBehaviour
         }
     }
 
+    // Resolves the shared HDRP/Decal source material once. Loads the build-safe
+    // asset from Resources first (keeps the shader + decal variants in players);
+    // falls back to a runtime Shader.Find for safety in the editor.
+    private Material GetBaseDecalMaterial()
+    {
+        if (baseDecalResolved)
+        {
+            return baseDecalMaterial;
+        }
+
+        baseDecalResolved = true;
+        baseDecalMaterial = Resources.Load<Material>("GraffitiDecal");
+        if (baseDecalMaterial == null)
+        {
+            Shader decalShader = Shader.Find("HDRP/Decal");
+            if (decalShader != null)
+            {
+                baseDecalMaterial = new Material(decalShader) { name = "GraffitiDecal (runtime)" };
+            }
+        }
+
+        return baseDecalMaterial;
+    }
+
     private Material GetDecalMaterial(int index)
     {
         if (decalMaterials.TryGetValue(index, out Material existing) && existing != null)
@@ -269,8 +363,21 @@ public class SprayCanController : MonoBehaviour
             return existing;
         }
 
-        Shader decalShader = Shader.Find("HDRP/Decal");
-        Material mat = new Material(decalShader) { name = "Graffiti_" + index };
+        // Prefer instancing the shipped Resources material: it keeps the
+        // HDRP/Decal shader AND its DBuffer variants alive through the build's
+        // shader stripper. Shader.Find alone returns a shader whose decal
+        // variants HDRP strips when no decal *material asset* is referenced in a
+        // built scene, so the projector renders nothing in players.
+        Material baseDecal = GetBaseDecalMaterial();
+        if (baseDecal == null)
+        {
+            // No base asset and the shader was stripped too — skip painting
+            // rather than crashing on new Material(null).
+            Debug.LogWarning("SprayCanController: HDRP/Decal material/shader not found — graffiti disabled.");
+            return null;
+        }
+
+        Material mat = new Material(baseDecal) { name = "Graffiti_" + index };
         mat.SetTexture("_BaseColorMap", GetSprayTexture());
         mat.SetColor("_BaseColor", GetColor(index));
         // Paint albedo only (no normal / metal / smoothness influence).
@@ -411,6 +518,22 @@ public class SprayCanController : MonoBehaviour
         audioSource.playOnAwake = false;
         audioSource.spatialBlend = 1f;
         audioSource.rolloffMode = AudioRolloffMode.Logarithmic;
+
+        // Dedicated source for the looping hiss, on a child so PickupInteractable's
+        // GetComponent<AudioSource>() never grabs it. Keeping the loop off the
+        // shared source means StartSprayAudio/StopSprayAudio's Play()/Stop() can't
+        // clobber the rattle / pickup / drop one-shots that run on `audioSource`.
+        if (sprayLoopSource == null)
+        {
+            GameObject loopGo = new GameObject("SprayLoopAudio");
+            loopGo.transform.SetParent(transform, false);
+            sprayLoopSource = loopGo.AddComponent<AudioSource>();
+        }
+
+        sprayLoopSource.playOnAwake = false;
+        sprayLoopSource.spatialBlend = 1f;
+        sprayLoopSource.rolloffMode = AudioRolloffMode.Logarithmic;
+        sprayLoopSource.loop = true;
     }
 
     // Spray-can ball rattle synthesized at runtime, used when no Rattle Sound
@@ -452,25 +575,24 @@ public class SprayCanController : MonoBehaviour
 
     private void StartSprayAudio()
     {
-        if (audioSource == null || paintingSound == null)
+        if (sprayLoopSource == null || paintingSound == null)
         {
             return;
         }
 
-        if (!audioSource.isPlaying || audioSource.clip != paintingSound)
+        if (!sprayLoopSource.isPlaying || sprayLoopSource.clip != paintingSound)
         {
-            audioSource.clip = paintingSound;
-            audioSource.loop = true;
-            audioSource.Play();
+            sprayLoopSource.clip = paintingSound;
+            sprayLoopSource.loop = true;
+            sprayLoopSource.Play();
         }
     }
 
     private void StopSprayAudio()
     {
-        if (audioSource != null && audioSource.clip == paintingSound && audioSource.isPlaying)
+        if (sprayLoopSource != null && sprayLoopSource.isPlaying)
         {
-            audioSource.Stop();
-            audioSource.loop = false;
+            sprayLoopSource.Stop();
         }
     }
 

@@ -280,6 +280,18 @@ MeshCollider:
   m_Convex: 1
   m_CookingOptions: 30
   m_Mesh: {fileID: -7974710988704037368, guid: 2ae6aa40cb2df42c8aeb1cfb7bca409f, type: 3}
+--- !u!134 &132161772
+PhysicMaterial:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: 
+  dynamicFriction: 0.6
+  staticFriction: 0.6
+  bounciness: 0
+  frictionCombine: 0
+  bounceCombine: 0
 --- !u!1 &167603540
 GameObject:
   m_ObjectHideFlags: 0
@@ -1522,7 +1534,7 @@ MeshCollider:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 267477301}
-  m_Material: {fileID: 0}
+  m_Material: {fileID: 2133146481}
   m_IncludeLayers:
     serializedVersion: 2
     m_Bits: 0
@@ -1566,7 +1578,7 @@ BoxCollider:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 267477301}
-  m_Material: {fileID: 0}
+  m_Material: {fileID: 132161772}
   m_IncludeLayers:
     serializedVersion: 2
     m_Bits: 0
@@ -1756,7 +1768,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1546890741069285767, guid: 03303609fb7984984bee9e3c173904c3, type: 3}
       propertyPath: enableSprint
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 1546890741069285767, guid: 03303609fb7984984bee9e3c173904c3, type: 3}
       propertyPath: enableHeadBob
@@ -3290,7 +3302,6 @@ MonoBehaviour:
   spawnDistance: 2.3
   turnDuration: 0.55
   speakerName: "\u0410\u041D\u0422\u041E\u041D\u0427\u0418\u041A"
-  lettersPerSecond: 14
   replyTimeLimit: 8
   pistolPrefab: {fileID: 7872568251004129172, guid: 9d33d3a50f6ba4bbcab5a402df309b36, type: 3}
   magazinePrefab: {fileID: 0}
@@ -3898,6 +3909,18 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -3462519704948025614, guid: 2ae6aa40cb2df42c8aeb1cfb7bca409f, type: 3}
   m_PrefabInstance: {fileID: 267477288}
   m_PrefabAsset: {fileID: 0}
+--- !u!134 &2133146481
+PhysicMaterial:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: 
+  dynamicFriction: 0.6
+  staticFriction: 0.6
+  bounciness: 0
+  frictionCombine: 0
+  bounceCombine: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

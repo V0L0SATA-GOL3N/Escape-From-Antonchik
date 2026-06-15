@@ -312,30 +312,40 @@ public class CarEscapeController : SimpleInteractable
         titleObject.transform.SetParent(canvasRoot, false);
         TextMeshProUGUI title = titleObject.AddComponent<TextMeshProUGUI>();
         title.text = "ТЫ СБЕЖАЛ ОТ АНТОНЧИКА";
-        title.fontSize = 84f;
         title.fontStyle = FontStyles.Bold;
         title.characterSpacing = 10f;
         title.alignment = TextAlignmentOptions.Center;
         title.color = new Color(0.85f, 0.82f, 0.7f, 1f);
+        // Auto-shrink the font so the title always fits one line on any screen.
+        title.enableWordWrapping = false;
+        title.enableAutoSizing = true;
+        title.fontSizeMax = 84f;
+        title.fontSizeMin = 18f;
         RectTransform titleRect = title.rectTransform;
-        titleRect.anchorMin = new Vector2(0.5f, 0.5f);
-        titleRect.anchorMax = new Vector2(0.5f, 0.5f);
+        // Stretch horizontally with the screen, leaving a margin on each side.
+        titleRect.anchorMin = new Vector2(0f, 0.5f);
+        titleRect.anchorMax = new Vector2(1f, 0.5f);
+        titleRect.pivot = new Vector2(0.5f, 0.5f);
         titleRect.anchoredPosition = new Vector2(0f, 90f);
-        titleRect.sizeDelta = new Vector2(1700f, 180f);
+        titleRect.sizeDelta = new Vector2(-120f, 180f);
 
         GameObject subObject = new GameObject("Victory Subtitle");
         subObject.transform.SetParent(canvasRoot, false);
         TextMeshProUGUI subtitle = subObject.AddComponent<TextMeshProUGUI>();
         subtitle.text = "Но он запомнил твоё лицо...";
-        subtitle.fontSize = 32f;
         subtitle.fontStyle = FontStyles.Italic;
         subtitle.alignment = TextAlignmentOptions.Center;
         subtitle.color = new Color(0.55f, 0.5f, 0.48f, 1f);
+        subtitle.enableWordWrapping = false;
+        subtitle.enableAutoSizing = true;
+        subtitle.fontSizeMax = 32f;
+        subtitle.fontSizeMin = 12f;
         RectTransform subRect = subtitle.rectTransform;
-        subRect.anchorMin = new Vector2(0.5f, 0.5f);
-        subRect.anchorMax = new Vector2(0.5f, 0.5f);
+        subRect.anchorMin = new Vector2(0f, 0.5f);
+        subRect.anchorMax = new Vector2(1f, 0.5f);
+        subRect.pivot = new Vector2(0.5f, 0.5f);
         subRect.anchoredPosition = new Vector2(0f, -10f);
-        subRect.sizeDelta = new Vector2(1400f, 60f);
+        subRect.sizeDelta = new Vector2(-120f, 60f);
 
         GameObject buttonObject = new GameObject("Menu Button");
         buttonObject.transform.SetParent(canvasRoot, false);
