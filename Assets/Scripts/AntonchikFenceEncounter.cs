@@ -1411,7 +1411,11 @@ if (Physics.Raycast(rayOrigin, Vector3.down, out hit, 100f))
             yield break;
         }
 
-        Vector3 lookTarget = antonInstance.transform.position + Vector3.up * 1.62f;
+        // Aim the camera at his actual head/face rather than a fixed height —
+        // his scale and the ground-snap on spawn move the real face around.
+        Vector3 lookTarget = puppeteer != null
+            ? puppeteer.FaceWorldPosition()
+            : antonInstance.transform.position + Vector3.up * 1.62f;
 
         Quaternion startBodyRotation = playerTransform.rotation;
         Vector3 flatDirection = antonInstance.transform.position - playerTransform.position;

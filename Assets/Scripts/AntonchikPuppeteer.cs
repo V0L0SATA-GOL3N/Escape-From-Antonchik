@@ -63,6 +63,21 @@ public class AntonchikPuppeteer : MonoBehaviour
 
     public Transform LeftHand => leftHand != null ? leftHand : transform;
 
+    public Transform Head => head;
+
+    // World position of Antonchik's face, used to aim the player's camera at him
+    // during dialog. The head bone pivots at the base of the skull, so nudge it
+    // forward (toward whoever he's facing) and up to land on the face itself.
+    public Vector3 FaceWorldPosition()
+    {
+        if (head != null)
+        {
+            return head.position + transform.forward * 0.08f + Vector3.up * 0.05f;
+        }
+
+        return transform.position + Vector3.up * 1.62f;
+    }
+
     public void BeginAiming(Transform target, GameObject gunPrefab)
     {
         aimAt = target;
