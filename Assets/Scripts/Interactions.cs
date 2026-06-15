@@ -377,6 +377,7 @@ public class DoorRaycastInteractor : MonoBehaviour
         PickupInteractable nextObject = HeldObject;
         if (nextObject != null)
         {
+            PrepareHoldPoint();
             nextObject.EquipFromInventory(holdPoint);
             ApplyHeldObjectHandPose(nextObject);
         }
@@ -697,6 +698,23 @@ public class DoorRaycastInteractor : MonoBehaviour
         holdPoint.localScale = Vector3.one;
     }
 
+    // Re-anchor the hold point to the current hand and re-apply its local pose.
+    // PickupRoutine does this inline before attaching, but GiveItem /
+    // SwitchInventorySlot can equip an item before any manual pickup has run
+    // (e.g. cross-scene inventory restore at scene Start), so they must ensure
+    // it too — otherwise the held item lands at the hold point's stale default
+    // (wrong place, wrong scale).
+    private void PrepareHoldPoint()
+    {
+        Transform handAnchor = GetPickupAnchor();
+        if (handAnchor != null && holdPoint != null && holdPoint.parent != handAnchor)
+        {
+            holdPoint.SetParent(handAnchor, false);
+        }
+
+        ApplyHoldPointLocalPose();
+    }
+
     private Transform GetExistingPickupPoint()
     {
         Transform wrist = handsAnimatorDriver != null ? handsAnimatorDriver.RightWristTransform : null;
@@ -875,6 +893,20 @@ public class DoorRaycastInteractor : MonoBehaviour
 
     // --- public inventory access for quest logic / cross-scene carry-over ---
 
+    public int InventorySlotCount => inventorySlots.Length;
+
+    public int ActiveInventorySlot => activeSlotIndex;
+
+    public PickupInteractable GetInventoryItem(int index)
+    {
+        return index >= 0 && index < inventorySlots.Length ? inventorySlots[index] : null;
+    }
+
+    public void SetActiveInventorySlot(int index)
+    {
+        SwitchInventorySlot(index);
+    }
+
     public string[] GetCarriedItemNames()
     {
         var names = new System.Collections.Generic.List<string>();
@@ -945,6 +977,7 @@ public class DoorRaycastInteractor : MonoBehaviour
 
         if (slot == activeSlotIndex)
         {
+            PrepareHoldPoint();
             item.AttachTo(holdPoint);
             ApplyHeldObjectHandPose(item);
         }

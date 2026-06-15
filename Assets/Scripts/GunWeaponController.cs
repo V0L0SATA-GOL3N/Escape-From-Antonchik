@@ -372,6 +372,22 @@ public class GunWeaponController : MonoBehaviour
         return carriedMagazines < maxCarriedMagazines;
     }
 
+    // --- cross-scene carry-over ---
+    // Read/restore the live ammo so the gun keeps its loaded round count and
+    // spare magazines when the player carries it between scenes.
+    public void GetCarryState(out int ammoInMag, out int spareMagazines)
+    {
+        ammoInMag = ammoInMagazine;
+        spareMagazines = carriedMagazines;
+    }
+
+    public void ApplyCarryState(int ammoInMag, int spareMagazines)
+    {
+        ammoInMagazine = Mathf.Clamp(ammoInMag, 0, magazineSize);
+        carriedMagazines = Mathf.Clamp(spareMagazines, 0, maxCarriedMagazines);
+        UpdateHud(pickup != null && pickup.IsHeld);
+    }
+
     // Cheat: full mag + 99 spares.
     public void CheatStockUp()
     {

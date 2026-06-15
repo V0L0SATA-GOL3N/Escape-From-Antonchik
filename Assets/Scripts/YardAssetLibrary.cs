@@ -19,6 +19,13 @@ public class YardAssetLibrary : ScriptableObject
     public GameObject snusPrefab;
     public GameObject truckPrefab;
 
+    [Header("Carry-over pickups")]
+    // Items the player can pick up in the room and carry into the yard. Listed
+    // here so InventoryCarryOver can re-spawn them in player builds, where
+    // AssetDatabase is unavailable. See InventoryCarryOver.ResolveFromLibrary.
+    public GameObject jamesonPrefab;
+    public GameObject sprayCanPrefab;
+
     [Header("Animation")]
     public AnimationClip idleClip;
     public AnimationClip walkClip;
