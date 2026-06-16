@@ -693,7 +693,7 @@ GameObject:
   - component: {fileID: 4463940669410031698}
   - component: {fileID: 6472162275203095385}
   m_Layer: 0
-  m_Name: Pistol_00
+  m_Name: Glock-18
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

@@ -533,8 +533,10 @@ public class ScalapendraScreamer : ShootableTarget
 
     private IEnumerator LungeAndScare()
     {
-        // final pounce: surge in, screech, flash the screen red, then burrow off
+        // final pounce: surge in, screech, bite you for 3 hearts (game over if
+        // that empties the bar), then burrow off
         voice.PlayOneShot(HorrorAudio.Scream(), 1f);
+        PlayerHealth.Damage(3, "Сколопендра добралась до тебя.");
         ScreenFlash.Flash(new Color(0.5f, 0f, 0f, 0.7f), 0.18f);
 
         float t = 0f;

@@ -116,14 +116,18 @@ public static class InventoryCarryOver
                 continue;
             }
 
-            // Give both the instance root and the interactable's object the prefab
-            // root name. The yard quest identifies carried items by name
+            // Give both the instance root and the interactable's object a single
+            // canonical name. The yard quest identifies carried items by name
             // (interactor.HasItemNamed("Jameson"/"snus")), and the interactable's
-            // own GameObject is what DisplayName reports — without this it would
-            // keep its raw mesh name ("Jameson_Atlas_0") and never match.
-            // Keep the gun's captured display name (e.g. "Glock-18"); for other
-            // items use the prefab root name so quest HasItemNamed checks match.
-            string canonicalName = record.isGun ? CleanName(record.name) : CleanName(prefab.name);
+            // own GameObject is what DisplayName reports.
+            // Keep the name the item carried out of the previous scene so in-scene
+            // renames survive the transfer (e.g. the spray can shown as "mtn can",
+            // or a renamed snus). The gun always keeps its captured name; other
+            // items keep theirs too, falling back to the prefab root name only when
+            // the captured name is raw mesh-import noise ("Jameson_Atlas_0").
+            string canonicalName = record.isGun
+                ? CleanName(record.name)
+                : ChooseDisplayName(CleanName(record.name), prefab.name);
             instance.name = canonicalName;
             pickup.gameObject.name = canonicalName;
 
@@ -268,6 +272,25 @@ public static class InventoryCarryOver
         }
 
         return sb.ToString();
+    }
+
+    // Prefer the name the item carried out of the previous scene so deliberate
+    // in-scene renames (e.g. the spray can shown as "mtn can") survive the
+    // transfer. Only fall back to the prefab root name when the captured name is
+    // raw mesh-import noise — a strict superset of the prefab name with extra
+    // junk, like "Jameson_Atlas_0" wrapping "Jameson" — which would otherwise
+    // read badly and break quest HasItemNamed checks.
+    private static string ChooseDisplayName(string captured, string prefabName)
+    {
+        if (string.IsNullOrWhiteSpace(captured))
+        {
+            return CleanName(prefabName);
+        }
+
+        string c = Normalize(captured);
+        string p = Normalize(prefabName);
+        bool capturedIsMeshNoise = p.Length > 0 && c.Length > p.Length && c.Contains(p);
+        return capturedIsMeshNoise ? CleanName(prefabName) : captured;
     }
 
     private static string CleanName(string rawName)

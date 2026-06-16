@@ -151,12 +151,12 @@ public class ScreamerController : MonoBehaviour
             float distance = toPlayer.magnitude;
             if (distance <= killDistance)
             {
+                // it reaches you: rake you for 7 hearts (game over if that empties
+                // the bar), then recoil away through the death/sink below so you
+                // get a breath before the next one
                 screamSource.PlayOneShot(HorrorAudio.Scream(), 1f);
-                yield return new WaitForSeconds(0.15f);
-                GameOverScreen.Show("Тень добралась до тебя. Надо было стрелять.");
-                Destroy(figure, 2f);
-                screamerActive = false;
-                yield break;
+                PlayerHealth.Damage(7, "Тень добралась до тебя. Надо было стрелять.");
+                break;
             }
 
             // ease any pending knockback into the position so hits visibly jolt it
