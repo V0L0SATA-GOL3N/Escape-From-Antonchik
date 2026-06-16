@@ -24,6 +24,8 @@ public class ScalapendraSpawner : MonoBehaviour
     [SerializeField] private float spawnIntervalMax = 26f;
     [SerializeField] private float chargeSpeed = 2.6f;
     [SerializeField] private float lifeTime = 22f;
+    // How many rounds it takes to kill one of these.
+    [SerializeField] private int hitsToKill = 3;
     // How big the creature is. The prefab scale reads as a small bug; this
     // blows it up into a horse-sized horror.
     [SerializeField] private float creatureScale = 4.5f;
@@ -150,7 +152,7 @@ public class ScalapendraSpawner : MonoBehaviour
             BuiltinPipelineCompatibility.PatchSpawnedObject(model);
 
             ScalapendraScreamer screamer = container.AddComponent<ScalapendraScreamer>();
-            screamer.Initialise(model.transform, player, chargeSpeed, lifeTime, scalapendraController, animationStateName);
+            screamer.Initialise(model.transform, player, chargeSpeed, lifeTime, scalapendraController, animationStateName, hitsToKill);
 
             alive.Add(container);
             return;
@@ -158,7 +160,7 @@ public class ScalapendraSpawner : MonoBehaviour
     }
 }
 
-public class ScalapendraScreamer : MonoBehaviour
+public class ScalapendraScreamer : ShootableTarget
 {
     private Transform model;
     private Transform player;
@@ -168,16 +170,21 @@ public class ScalapendraScreamer : MonoBehaviour
     private Vector3 pinnedLocalPosition;
     private Renderer[] modelRenderers;
     private Light glow;
+    private Animator animator;
+    private BoxCollider hitBox;
     private bool retreating;
     private bool scaredThisLunge;
+    private int health;
+    private bool dying;
 
     public void Initialise(Transform modelRoot, Transform playerTransform, float chargeSpeed, float lifeTime,
-        RuntimeAnimatorController controller, string stateName)
+        RuntimeAnimatorController controller, string stateName, int hitsToKill)
     {
         model = modelRoot;
         player = playerTransform;
         speed = chargeSpeed;
         dieAt = Time.time + lifeTime;
+        health = Mathf.Max(1, hitsToKill);
 
         // The prefab ships with the model node m_IsActive=0, so the clone spawns
         // disabled (invisible, no animation). Force the whole hierarchy on.
@@ -190,6 +197,7 @@ public class ScalapendraScreamer : MonoBehaviour
         modelRenderers = model.GetComponentsInChildren<Renderer>(true);
 
         MakeScary();
+        AddHitCollider();
         StartAnimation(controller, stateName);
 
         voice = gameObject.AddComponent<AudioSource>();
@@ -258,9 +266,60 @@ public class ScalapendraScreamer : MonoBehaviour
         }
     }
 
+    // Give the gun raycast something to hit. The prefab ships with no collider,
+    // and unlike the (frozen) Antonchik screamer this creature keeps animating
+    // and is re-pinned/ground-clamped every frame, so a collider sized once at
+    // spawn immediately goes stale. Put the box on the container and refresh it
+    // each LateUpdate (UpdateHitBox) so it tracks the live body.
+    private void AddHitCollider()
+    {
+        hitBox = gameObject.AddComponent<BoxCollider>();
+        UpdateHitBox();
+    }
+
+    private void UpdateHitBox()
+    {
+        if (hitBox == null || modelRenderers == null)
+        {
+            return;
+        }
+
+        bool found = false;
+        Bounds worldBounds = new Bounds(transform.position, Vector3.zero);
+        for (int i = 0; i < modelRenderers.Length; i++)
+        {
+            if (modelRenderers[i] == null || !modelRenderers[i].enabled)
+            {
+                continue;
+            }
+
+            if (!found)
+            {
+                worldBounds = modelRenderers[i].bounds;
+                found = true;
+            }
+            else
+            {
+                worldBounds.Encapsulate(modelRenderers[i].bounds);
+            }
+        }
+
+        if (!found)
+        {
+            return;
+        }
+
+        hitBox.center = transform.InverseTransformPoint(worldBounds.center);
+        Vector3 scale = transform.lossyScale;
+        hitBox.size = new Vector3(
+            worldBounds.size.x / Mathf.Max(0.0001f, Mathf.Abs(scale.x)),
+            worldBounds.size.y / Mathf.Max(0.0001f, Mathf.Abs(scale.y)),
+            worldBounds.size.z / Mathf.Max(0.0001f, Mathf.Abs(scale.z)));
+    }
+
     private void StartAnimation(RuntimeAnimatorController controller, string stateName)
     {
-        Animator animator = model.GetComponentInChildren<Animator>();
+        animator = model.GetComponentInChildren<Animator>();
         if (animator != null)
         {
             animator.enabled = true;
@@ -286,8 +345,129 @@ public class ScalapendraScreamer : MonoBehaviour
         }
     }
 
+    // Hit by the gun raycast. Soak up rounds; flinch on each, die on the last.
+    public override void OnShot(Vector3 hitPoint)
+    {
+        base.OnShot(hitPoint);
+        if (dying)
+        {
+            return;
+        }
+
+        health--;
+        if (health <= 0)
+        {
+            StartCoroutine(DeathRoutine());
+        }
+        else
+        {
+            StartCoroutine(Flinch(hitPoint));
+        }
+    }
+
+    private IEnumerator Flinch(Vector3 hitPoint)
+    {
+        // pain screech, a flash of the glow and a small shove away from the shot
+        if (voice != null)
+        {
+            voice.PlayOneShot(HorrorAudio.Scream(), 0.7f);
+        }
+
+        Vector3 knockback = transform.position - hitPoint;
+        knockback.y = 0f;
+        knockback = knockback.sqrMagnitude > 0.0001f ? knockback.normalized : -transform.forward;
+
+        float t = 0f;
+        while (t < 0.18f && !dying)
+        {
+            t += Time.deltaTime;
+            transform.position += knockback * (2.2f * Time.deltaTime);
+            if (glow != null)
+            {
+                glow.intensity = 4f;
+            }
+
+            StickToGround();
+            yield return null;
+        }
+    }
+
+    private IEnumerator DeathRoutine()
+    {
+        dying = true;
+        retreating = true;
+        enabled = false;
+
+        // Freeze the walk clip: LateUpdate (which re-pins the root) no longer runs
+        // once this behaviour is disabled, and the clip writes garbage into the
+        // model root — a frozen pose keeps the corpse where we put it.
+        if (animator != null)
+        {
+            animator.speed = 0f;
+        }
+
+        if (voice != null)
+        {
+            voice.PlayOneShot(HorrorAudio.Scream(), 1f);
+        }
+
+        AudioSource.PlayClipAtPoint(HorrorAudio.Squelch(), transform.position, 1f);
+
+        // death throes: violent diminishing writhe, rolling onto its side
+        float t = 0f;
+        const float writheDuration = 0.9f;
+        float roll = 0f;
+        while (t < writheDuration)
+        {
+            t += Time.deltaTime;
+            float energy = 1f - (t / writheDuration);
+            float twist = Mathf.Sin(t * 38f) * 220f * energy;
+            transform.Rotate(0f, twist * Time.deltaTime, 0f, Space.World);
+            // tip over onto its side as it dies
+            roll = Mathf.Lerp(roll, 80f, Time.deltaTime * 4f);
+            if (model != null)
+            {
+                model.localPosition = pinnedLocalPosition;
+                model.localRotation = Quaternion.Euler(0f, 0f, roll);
+            }
+
+            if (glow != null)
+            {
+                glow.intensity = Mathf.Max(0f, glow.intensity - Time.deltaTime * 1.5f);
+            }
+
+            yield return null;
+        }
+
+        // sink the corpse into the ground and fade out
+        float sink = 0f;
+        while (sink < 1.2f)
+        {
+            sink += Time.deltaTime;
+            transform.position += Vector3.down * (1.4f * Time.deltaTime);
+            if (model != null)
+            {
+                model.localPosition = pinnedLocalPosition;
+            }
+
+            if (glow != null)
+            {
+                glow.intensity = Mathf.Max(0f, glow.intensity - Time.deltaTime * 4f);
+            }
+
+            yield return null;
+        }
+
+        Destroy(gameObject);
+    }
+
     private void Update()
     {
+        if (dying)
+        {
+            return;
+        }
+
         if (player == null || Time.time >= dieAt)
         {
             BurrowAway();
@@ -328,7 +508,22 @@ public class ScalapendraScreamer : MonoBehaviour
     private void StickToGround()
     {
         Vector3 origin = transform.position + Vector3.up * 1.5f;
-        if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, 8f, ~0, QueryTriggerInteraction.Ignore))
+        // Temporarily drop our own hit box so the downward ray reads the ground,
+        // not the creature's body (which would make it stick to itself).
+        bool hadBox = hitBox != null && hitBox.enabled;
+        if (hadBox)
+        {
+            hitBox.enabled = false;
+        }
+
+        bool grounded = Physics.Raycast(origin, Vector3.down, out RaycastHit hit, 8f, ~0, QueryTriggerInteraction.Ignore);
+
+        if (hadBox)
+        {
+            hitBox.enabled = true;
+        }
+
+        if (grounded)
         {
             Vector3 position = transform.position;
             position.y = hit.point.y + 0.01f;
@@ -402,6 +597,13 @@ public class ScalapendraScreamer : MonoBehaviour
 
         model.localPosition = pinnedLocalPosition;
 
+        // While dying the death routine drives the model's roll and the corpse
+        // is sinking — don't ground-clamp it back up.
+        if (dying)
+        {
+            return;
+        }
+
         float lowest = LowestRendererY();
         if (!float.IsInfinity(lowest))
         {
@@ -413,6 +615,10 @@ public class ScalapendraScreamer : MonoBehaviour
                 model.localPosition = pinnedLocalPosition + Vector3.up * (gap / localScaleY);
             }
         }
+
+        // Keep the hit collider wrapped around the now-positioned body so the gun
+        // ray can land on it. Done after the ground clamp so it uses final bounds.
+        UpdateHitBox();
     }
 
     private float LowestRendererY()

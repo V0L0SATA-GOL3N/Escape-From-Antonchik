@@ -24,6 +24,8 @@ public class ScreamerController : MonoBehaviour
     [SerializeField] private float spawnDistance = 13f;
     [SerializeField] private float chargeSpeed = 4.2f;
     [SerializeField] private float killDistance = 1.3f;
+    // How many rounds it takes to put the screamer down.
+    [SerializeField] private int requiredHits = 8;
 
     private Transform player;
     private Camera playerCamera;
@@ -101,8 +103,6 @@ public class ScreamerController : MonoBehaviour
         EnsureFigureCollider(figure);
 
         ShootableTarget target = figure.AddComponent<ShootableTarget>();
-        bool wasShot = false;
-        target.Shot += _ => wasShot = true;
 
         AudioSource screamSource = figure.AddComponent<AudioSource>();
         screamSource.spatialBlend = 0.6f;
@@ -124,10 +124,27 @@ public class ScreamerController : MonoBehaviour
             hdData.SetIntensity(2200f, UnityEngine.Rendering.HighDefinition.LightUnit.Lumen);
         }
 
+        // Each round staggers it; it only goes down once it has soaked up
+        // requiredHits. Track hits taken and knock it back on every hit.
+        int hits = requiredHits < 1 ? 1 : requiredHits;
+        int hitsTaken = 0;
+        Vector3 knockback = Vector3.zero;
+        target.Shot += hitPoint =>
+        {
+            hitsTaken++;
+            Vector3 away = figure != null && player != null
+                ? (figure.transform.position - player.position)
+                : Vector3.zero;
+            away.y = 0f;
+            knockback += away.normalized * 0.45f;
+            screamSource.PlayOneShot(HorrorAudio.Scream(), 0.55f);
+            eyeLight.intensity = 6.5f;
+        };
+
         // brief freeze so the player registers it, then the charge
         yield return new WaitForSeconds(0.55f);
 
-        while (!wasShot && figure != null && player != null)
+        while (hitsTaken < hits && figure != null && player != null)
         {
             Vector3 toPlayer = player.position - figure.transform.position;
             toPlayer.y = 0f;
@@ -142,23 +159,43 @@ public class ScreamerController : MonoBehaviour
                 yield break;
             }
 
+            // ease any pending knockback into the position so hits visibly jolt it
+            Vector3 step = toPlayer.normalized * (chargeSpeed * Time.deltaTime);
+            if (knockback.sqrMagnitude > 0.0001f)
+            {
+                Vector3 kb = Vector3.ClampMagnitude(knockback, 6f * Time.deltaTime);
+                step += kb;
+                knockback -= kb;
+            }
+
             figure.transform.rotation = Quaternion.LookRotation(toPlayer.normalized, Vector3.up);
-            figure.transform.position += toPlayer.normalized * (chargeSpeed * Time.deltaTime);
+            figure.transform.position += step;
             eyeLight.intensity = 2.5f + Mathf.PingPong(Time.time * 18f, 2.5f);
             yield return null;
         }
 
         if (figure != null)
         {
-            // shot down: squelch, collapse into the ground, fade the light
+            // killed: shriek, topple backwards onto the ground while sinking and
+            // fading the eye glow — a deliberate death rather than a clean vanish
+            screamSource.PlayOneShot(HorrorAudio.Scream(), 1f);
             AudioSource.PlayClipAtPoint(HorrorAudio.Squelch(), figure.transform.position, 1f);
-            float sink = 0f;
-            while (sink < 1.4f && figure != null)
+
+            Vector3 fallAxis = figure.transform.right;
+            float death = 0f;
+            const float deathDuration = 1.6f;
+            while (death < deathDuration && figure != null)
             {
-                sink += Time.deltaTime;
-                figure.transform.position += Vector3.down * (1.6f * Time.deltaTime);
-                figure.transform.Rotate(0f, 220f * Time.deltaTime, 0f, Space.World);
-                eyeLight.intensity = Mathf.Max(0f, eyeLight.intensity - Time.deltaTime * 6f);
+                death += Time.deltaTime;
+                float t = death / deathDuration;
+                // topple backward over the first ~0.6s, then keep sinking
+                if (t < 0.45f)
+                {
+                    figure.transform.Rotate(fallAxis, 200f * Time.deltaTime, Space.World);
+                }
+
+                figure.transform.position += Vector3.down * (1.5f * Time.deltaTime * Mathf.Clamp01(t * 2f));
+                eyeLight.intensity = Mathf.Max(0f, eyeLight.intensity - Time.deltaTime * 5f);
                 yield return null;
             }
 
@@ -195,14 +232,49 @@ public class ScreamerController : MonoBehaviour
 
     private static void EnsureFigureCollider(GameObject figure)
     {
-        if (figure.GetComponentInChildren<Collider>() != null)
+        // anton's model root carries a big authored offset (~10 units), so a
+        // capsule at the figure origin sits metres away from the visible body and
+        // the gun ray never hits it — shots wouldn't register and it could never
+        // be killed. Wrap the actual renderer bounds so the collider overlaps the
+        // body the player is aiming at. The animator is frozen, so the pose (and
+        // therefore the bounds) is static.
+        Renderer[] renderers = figure.GetComponentsInChildren<Renderer>();
+        bool found = false;
+        Bounds bounds = new Bounds(figure.transform.position, Vector3.zero);
+        for (int i = 0; i < renderers.Length; i++)
         {
+            if (renderers[i] == null || !renderers[i].enabled)
+            {
+                continue;
+            }
+
+            if (!found)
+            {
+                bounds = renderers[i].bounds;
+                found = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderers[i].bounds);
+            }
+        }
+
+        if (!found)
+        {
+            // no renderers to measure: fall back to a body-sized capsule
+            CapsuleCollider capsule = figure.AddComponent<CapsuleCollider>();
+            capsule.center = Vector3.up * 0.95f;
+            capsule.height = 1.9f;
+            capsule.radius = 0.35f;
             return;
         }
 
-        CapsuleCollider capsule = figure.AddComponent<CapsuleCollider>();
-        capsule.center = Vector3.up * 0.95f;
-        capsule.height = 1.9f;
-        capsule.radius = 0.35f;
+        BoxCollider box = figure.AddComponent<BoxCollider>();
+        box.center = figure.transform.InverseTransformPoint(bounds.center);
+        Vector3 scale = figure.transform.lossyScale;
+        box.size = new Vector3(
+            bounds.size.x / Mathf.Max(0.0001f, Mathf.Abs(scale.x)),
+            bounds.size.y / Mathf.Max(0.0001f, Mathf.Abs(scale.y)),
+            bounds.size.z / Mathf.Max(0.0001f, Mathf.Abs(scale.z)));
     }
 }
