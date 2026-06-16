@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
-  m_IndirectSpecularColor: {r: 0.0075011584, g: 0.011251717, b: 0.027086044, a: 1}
+  m_IndirectSpecularColor: {r: 0, g: 0, b: 0, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -6099,7 +6099,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8596405207757802334, guid: ece1c0a6b1e5d49a8b5b1bbc77c1e7d9, type: 3}
       propertyPath: m_Name
-      value: snus
+      value: LOOP snus
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -12570,7 +12570,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8490735425176797456, guid: 8c98a3fb33c4142d6b40d68a60ea6fa1, type: 3}
       propertyPath: m_Name
-      value: mtn_hardcore
+      value: MTN Hardcore
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
