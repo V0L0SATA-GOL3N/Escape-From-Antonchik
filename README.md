@@ -20,11 +20,45 @@ Escape From Antonchik is a Unity first-person project built with Unity 2023.1.22
 
 ## Getting Started
 
-1. Install Unity `2023.1.22f1`.
-2. Clone this repository.
-3. Open the repository root in Unity Hub.
-4. Let Unity import the project assets.
-5. Open a scene from `Assets/Scenes` and press Play.
+### Prerequisites
+
+- **Unity `2023.1.22f1`** (install via Unity Hub — exact version matters for HDRP).
+- **Git** with **[Git LFS](https://git-lfs.com)** installed. This repository stores all
+  binary assets (textures, models, audio, fonts, etc.) in Git LFS, so **Git LFS must be
+  set up before cloning** or those files will arrive as small text pointers and Unity
+  will report errors like *"invalid GUID"* or *"is not valid JSON"*.
+
+### Installation
+
+```bash
+# 1. Install Git LFS once per machine (https://git-lfs.com)
+#    macOS:    brew install git-lfs
+#    Windows:  winget install GitHub.GitLFS   (or use the Git for Windows installer)
+#    Linux:    sudo apt install git-lfs
+git lfs install
+
+# 2. Clone the repository (LFS content is fetched automatically)
+git clone https://github.com/V0L0SATA-GOL3N/Escape-From-Antonchik.git
+cd Escape-From-Antonchik
+```
+
+If you cloned **before** installing Git LFS (assets show up as `version https://git-lfs...`
+pointer text), fix an existing clone with:
+
+```bash
+git lfs install
+git lfs pull
+```
+
+### Open in Unity
+
+1. Add the cloned folder in **Unity Hub → Open → Add project from disk**.
+2. Open it with Unity `2023.1.22f1` and let the first import finish (HDRP shader
+   compilation can take a few minutes).
+3. Open a scene from `Assets/Scenes` and press **Play**.
+
+> **macOS note:** keep `git config core.precomposeunicode true` (Git's default) so Cyrillic
+> asset filenames are handled consistently.
 
 ## Cheat Codes
 
