@@ -17,6 +17,7 @@ MonoBehaviour:
   magazinePrefab: {fileID: 6477222035872424010, guid: f689d69d1d12f423ebd071d48a3e8a5c, type: 3}
   snusPrefab: {fileID: 8596405207757802334, guid: ece1c0a6b1e5d49a8b5b1bbc77c1e7d9, type: 3}
   truckPrefab: {fileID: 1039041537112898, guid: 20d6170d440e52b438267a860798bb0a, type: 3}
+  gateKeyPrefab: {fileID: 591207109626838783, guid: 56f92ed1ef80947678bfd883f79725cb, type: 3}
   jamesonPrefab: {fileID: 8255545283990774922, guid: ccbc49c397a05444bb7f190b0a86e882, type: 3}
   sprayCanPrefab: {fileID: 8490735425176797456, guid: 8c98a3fb33c4142d6b40d68a60ea6fa1, type: 3}
   idleClip: {fileID: -203655887218126122, guid: ec8995fd4590641478ba482808addbe5, type: 3}
@@ -25,6 +26,7 @@ MonoBehaviour:
   lineFinishedSound: {fileID: 8300000, guid: 0c9b61ad28aa540fc8caf983eca37320, type: 3}
   shotSound: {fileID: 8300000, guid: 47b2a139877c649d4b90b0d9564e5051, type: 3}
   radioFallbackTrack: {fileID: 8300000, guid: 8bf90cb58393643209087f391be7a78f, type: 3}
+  rainSound: {fileID: 8300000, guid: 42d3e783e309f40ab9f488ec3152393f, type: 3}
   scalapendraPrefab: {fileID: 796104062660985984, guid: f2337f52368114c929fbd20605deea69, type: 3}
   scalapendraController: {fileID: 9100000, guid: b966b124836c1402f8f36cb27feeeffe, type: 2}
   nightSky: {fileID: 2100000, guid: 8ab1b4e0d21704e81b6cd763adaabef9, type: 2}

@@ -48,6 +48,7 @@ public static class YardAssetLibraryBaker
         changed |= Assign(ref lib.magazinePrefab, "Assets/Prefabs/mag Variant.prefab", force);
         changed |= Assign(ref lib.snusPrefab, "Assets/Prefabs/snus.prefab", force);
         changed |= Assign(ref lib.truckPrefab, "Assets/Pickup/Prefabs/PickUp_Damaged.prefab", force);
+        changed |= Assign(ref lib.gateKeyPrefab, "Assets/Prefabs/Ключ от ворот.prefab", force);
         changed |= Assign(ref lib.jamesonPrefab, "Assets/Prefabs/Jameson.prefab", force);
         changed |= Assign(ref lib.sprayCanPrefab, "Assets/Prefabs/spraypaint_can_mtn_hardcore.prefab", force);
         changed |= Assign(ref lib.idleClip, "Assets/3d/Standing Idle.fbx", force);
@@ -56,6 +57,7 @@ public static class YardAssetLibraryBaker
         changed |= Assign(ref lib.lineFinishedSound, "Assets/SFX/cutscene_finish.wav", force);
         changed |= Assign(ref lib.shotSound, "Assets/SFX/shot.mp3", force);
         changed |= Assign(ref lib.radioFallbackTrack, "Assets/SFX/track_1.mp3", force);
+        changed |= Assign(ref lib.rainSound, "Assets/SFX/rain.mp3", force);
         changed |= Assign(ref lib.scalapendraPrefab, "Assets/Prefabs/scalapendra.prefab", force);
         changed |= Assign(ref lib.scalapendraController, "Assets/3d/scalapendra.controller", force);
         changed |= Assign(ref lib.nightSky, "Assets/sky/NightSky.mat", force);

@@ -13,6 +13,10 @@ public class CarEscapeController : SimpleInteractable
 {
     public static bool HasCarKeys;
 
+    // True once the player has gotten into the car and the escape sequence is
+    // running, so the yard creatures can freeze while the cutscene plays.
+    public static bool IsEscaping { get; private set; }
+
     private Transform gate;
     private AudioSource carAudio;
     private Light leftHeadlight;
@@ -22,6 +26,7 @@ public class CarEscapeController : SimpleInteractable
     private void Awake()
     {
         HasCarKeys = false;
+        IsEscaping = false;
         SetInteractionDistance(4f);
         Prompt = "The car is locked. You need the keys";
 
@@ -110,6 +115,7 @@ public class CarEscapeController : SimpleInteractable
         }
 
         escaping = true;
+        IsEscaping = true;
         CanInteract = false;
         StartCoroutine(EscapeRoutine());
         base.Interact();
@@ -140,6 +146,25 @@ public class CarEscapeController : SimpleInteractable
         }
 
         TaskHud.ClearObjective();
+
+        // The car is driven by hand (transform) during the cutscene, so take it out
+        // of physics entirely: a non-kinematic body with FreezeAll constraints fought
+        // every transform move and pinned the truck in place. Going kinematic + no
+        // colliders lets it just drive, and stops it shoving anything on the way out.
+        Rigidbody carBody = GetComponent<Rigidbody>();
+        if (carBody != null)
+        {
+            carBody.velocity = Vector3.zero;
+            carBody.angularVelocity = Vector3.zero;
+            carBody.constraints = RigidbodyConstraints.None;
+            carBody.useGravity = false;
+            carBody.isKinematic = true;
+        }
+
+        foreach (Collider carCollider in GetComponentsInChildren<Collider>())
+        {
+            carCollider.enabled = false;
+        }
 
         // slide the camera into the cab
         Bounds bounds = ComputeBounds();
@@ -191,7 +216,11 @@ public class CarEscapeController : SimpleInteractable
             : transform.forward;
 
         GameObject fade = BuildFadeOverlay(out CanvasGroup fadeGroup);
-        float driveTime = 6f;
+        // Drive roughly 3x as far before the screen fades: the visible driving used
+        // to start fading at 3.2s, now it cruises until ~9.6s.
+        const float fadeStart = 9.6f;
+        const float fadeDuration = 2.4f;
+        float driveTime = fadeStart + fadeDuration;
         for (float elapsed = 0f; elapsed < driveTime; elapsed += Time.deltaTime)
         {
             float speed = Mathf.Lerp(0.5f, 9f, Mathf.Clamp01(elapsed / 3f));
@@ -199,7 +228,7 @@ public class CarEscapeController : SimpleInteractable
             transform.position += driveDirection * (speed * Time.deltaTime);
             transform.rotation = Quaternion.Slerp(transform.rotation,
                 Quaternion.LookRotation(driveDirection, Vector3.up), Time.deltaTime * 1.2f);
-            fadeGroup.alpha = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((elapsed - 3.2f) / 2.4f));
+            fadeGroup.alpha = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((elapsed - fadeStart) / fadeDuration));
             yield return null;
         }
 

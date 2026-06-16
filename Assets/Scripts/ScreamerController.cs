@@ -29,6 +29,7 @@ public class ScreamerController : MonoBehaviour
 
     private Transform player;
     private Camera playerCamera;
+    private AntonchikFenceEncounter yard;
     private bool screamerActive;
 
     private void Awake()
@@ -52,6 +53,11 @@ public class ScreamerController : MonoBehaviour
         FirstPersonController controller = FindObjectOfType<FirstPersonController>();
         player = controller != null ? controller.transform : null;
         playerCamera = Camera.main;
+        yard = GetComponent<AntonchikFenceEncounter>();
+        if (yard == null)
+        {
+            yard = FindObjectOfType<AntonchikFenceEncounter>();
+        }
     }
 
     public bool IsScreamerActive => screamerActive;
@@ -73,7 +79,7 @@ public class ScreamerController : MonoBehaviour
     public void TriggerScreamer()
     {
         if (screamerActive || player == null || figurePrefab == null ||
-            AntonchikFenceEncounter.SequenceActive || GameOverScreen.IsActive)
+            AntonchikFenceEncounter.CreaturesPaused || GameOverScreen.IsActive)
         {
             return;
         }
@@ -88,11 +94,7 @@ public class ScreamerController : MonoBehaviour
         Vector3 forward = playerCamera != null ? playerCamera.transform.forward : player.forward;
         forward.y = 0f;
         forward.Normalize();
-        Vector3 spawnPoint = player.position + forward * spawnDistance;
-        if (Physics.Raycast(spawnPoint + Vector3.up * 5f, Vector3.down, out RaycastHit hit, 20f, ~0, QueryTriggerInteraction.Ignore))
-        {
-            spawnPoint = hit.point;
-        }
+        Vector3 spawnPoint = ResolveSpawnPoint(forward);
 
         GameObject figure = Instantiate(figurePrefab, spawnPoint, Quaternion.LookRotation(-forward, Vector3.up));
         figure.name = "Тень";
@@ -146,6 +148,13 @@ public class ScreamerController : MonoBehaviour
 
         while (hitsTaken < hits && figure != null && player != null)
         {
+            // Freeze the charge during dialog/cutscenes and the car escape.
+            if (AntonchikFenceEncounter.CreaturesPaused)
+            {
+                yield return null;
+                continue;
+            }
+
             Vector3 toPlayer = player.position - figure.transform.position;
             toPlayer.y = 0f;
             float distance = toPlayer.magnitude;
@@ -159,8 +168,18 @@ public class ScreamerController : MonoBehaviour
                 break;
             }
 
+            // Steer around the house/lamps instead of stopping at the wall, using
+            // the same yard map the key spawn uses.
+            Vector3 moveDir = yard != null
+                ? yard.SteerAroundBuildings(figure.transform.position, toPlayer.normalized, 3f)
+                : toPlayer.normalized;
+            if (moveDir.sqrMagnitude < 0.0001f)
+            {
+                moveDir = toPlayer.normalized;
+            }
+
             // ease any pending knockback into the position so hits visibly jolt it
-            Vector3 step = toPlayer.normalized * (chargeSpeed * Time.deltaTime);
+            Vector3 step = moveDir * (chargeSpeed * Time.deltaTime);
             if (knockback.sqrMagnitude > 0.0001f)
             {
                 Vector3 kb = Vector3.ClampMagnitude(knockback, 6f * Time.deltaTime);
@@ -168,8 +187,9 @@ public class ScreamerController : MonoBehaviour
                 knockback -= kb;
             }
 
-            figure.transform.rotation = Quaternion.LookRotation(toPlayer.normalized, Vector3.up);
+            figure.transform.rotation = Quaternion.LookRotation(moveDir, Vector3.up);
             figure.transform.position += step;
+
             eyeLight.intensity = 2.5f + Mathf.PingPong(Time.time * 18f, 2.5f);
             yield return null;
         }
@@ -206,6 +226,32 @@ public class ScreamerController : MonoBehaviour
         }
 
         screamerActive = false;
+    }
+
+    // Finds a spot in front of the player to burst out of, validated against the
+    // yard map so the figure never appears on a roof or inside a building. Pulls
+    // the distance in over a few tries until it lands on real walkable ground.
+    private Vector3 ResolveSpawnPoint(Vector3 forward)
+    {
+        if (yard != null)
+        {
+            for (float distance = spawnDistance; distance >= spawnDistance * 0.4f; distance -= 2f)
+            {
+                Vector3 candidate = player.position + forward * distance;
+                if (yard.TrySnapSpawnToGround(candidate, out Vector3 grounded) && !yard.IsSpawnBlocked(grounded))
+                {
+                    return grounded;
+                }
+            }
+        }
+
+        Vector3 fallback = player.position + forward * spawnDistance;
+        if (Physics.Raycast(fallback + Vector3.up * 5f, Vector3.down, out RaycastHit hit, 20f, ~0, QueryTriggerInteraction.Ignore))
+        {
+            fallback = hit.point;
+        }
+
+        return fallback;
     }
 
     private static void DarkenFigure(GameObject figure)

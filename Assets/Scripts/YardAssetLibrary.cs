@@ -18,6 +18,7 @@ public class YardAssetLibrary : ScriptableObject
     public GameObject magazinePrefab;
     public GameObject snusPrefab;
     public GameObject truckPrefab;
+    public GameObject gateKeyPrefab;
 
     [Header("Carry-over pickups")]
     // Items the player can pick up in the room and carry into the yard. Listed
@@ -35,6 +36,7 @@ public class YardAssetLibrary : ScriptableObject
     public AudioClip lineFinishedSound;
     public AudioClip shotSound;
     public AudioClip radioFallbackTrack;
+    public AudioClip rainSound;
 
     [Header("Scalapendra")]
     public GameObject scalapendraPrefab;

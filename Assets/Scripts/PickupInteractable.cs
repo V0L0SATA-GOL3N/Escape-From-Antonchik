@@ -180,6 +180,16 @@ public class PickupInteractable : MonoBehaviour
         PlaySound(pickupSound);
     }
 
+    // Lets runtime-spawned pickups (e.g. the gate key) define how they sit in the
+    // hand without a prefab-authored component.
+    public void SetCustomHeldPose(Vector3 localPosition, Vector3 localEuler, Vector3 localScale)
+    {
+        useCustomHeldPose = true;
+        heldLocalPositionOverride = localPosition;
+        heldLocalEulerOverride = localEuler;
+        heldLocalScaleOverride = localScale;
+    }
+
     public bool TryGetHeldPose(out Vector3 localPosition, out Quaternion localRotation)
     {
         localPosition = heldLocalPositionOverride;

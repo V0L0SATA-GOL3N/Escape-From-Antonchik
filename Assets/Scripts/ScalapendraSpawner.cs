@@ -31,6 +31,7 @@ public class ScalapendraSpawner : MonoBehaviour
     [SerializeField] private float creatureScale = 4.5f;
 
     private Transform player;
+    private AntonchikFenceEncounter yard;
     private readonly List<GameObject> alive = new List<GameObject>();
     private bool running;
 
@@ -85,7 +86,19 @@ public class ScalapendraSpawner : MonoBehaviour
         running = true;
         FirstPersonController controller = FindObjectOfType<FirstPersonController>();
         player = controller != null ? controller.transform : null;
+        yard = GetComponent<AntonchikFenceEncounter>();
+        if (yard == null)
+        {
+            yard = FindObjectOfType<AntonchikFenceEncounter>();
+        }
+
         StartCoroutine(SpawnLoop());
+    }
+
+    // Halt new spawns without disturbing the ones already roaming (cheat "stopsc").
+    public void StopSpawning()
+    {
+        running = false;
     }
 
     public void Deactivate()
@@ -110,7 +123,7 @@ public class ScalapendraSpawner : MonoBehaviour
         while (running)
         {
             alive.RemoveAll(item => item == null);
-            if (alive.Count < maxAlive && player != null && !AntonchikFenceEncounter.SequenceActive)
+            if (alive.Count < maxAlive && player != null && !AntonchikFenceEncounter.CreaturesPaused)
             {
                 TrySpawnOne();
             }
@@ -130,19 +143,36 @@ public class ScalapendraSpawner : MonoBehaviour
         {
             Vector2 ring = Random.insideUnitCircle.normalized * Random.Range(minSpawnDistance, maxSpawnDistance);
             Vector3 candidate = player.position + new Vector3(ring.x, 0f, ring.y);
-            Vector3 origin = candidate + Vector3.up * 6f;
-            if (!Physics.Raycast(origin, Vector3.down, out RaycastHit hit, 20f, ~0, QueryTriggerInteraction.Ignore))
+
+            Vector3 spot;
+            if (yard != null)
             {
-                continue;
+                // Use the same yard map the key spawn uses: only land on the real
+                // walkable floor, never on a roof, the exit platform or inside a
+                // building/lamp footprint.
+                if (!yard.TrySnapSpawnToGround(candidate, out spot))
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                Vector3 origin = candidate + Vector3.up * 6f;
+                if (!Physics.Raycast(origin, Vector3.down, out RaycastHit hit, 20f, ~0, QueryTriggerInteraction.Ignore))
+                {
+                    continue;
+                }
+
+                spot = hit.point;
             }
 
-            if (Vector3.Distance(hit.point, player.position) < minSpawnDistance * 0.8f)
+            if (Vector3.Distance(spot, player.position) < minSpawnDistance * 0.8f)
             {
                 continue;
             }
 
             GameObject container = new GameObject("Scalapendra Screamer");
-            container.transform.position = hit.point + Vector3.up * 0.01f;
+            container.transform.position = spot + Vector3.up * 0.01f;
             container.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
             container.transform.localScale = Vector3.one * creatureScale;
 
@@ -152,7 +182,7 @@ public class ScalapendraSpawner : MonoBehaviour
             BuiltinPipelineCompatibility.PatchSpawnedObject(model);
 
             ScalapendraScreamer screamer = container.AddComponent<ScalapendraScreamer>();
-            screamer.Initialise(model.transform, player, chargeSpeed, lifeTime, scalapendraController, animationStateName, hitsToKill);
+            screamer.Initialise(model.transform, player, chargeSpeed, lifeTime, scalapendraController, animationStateName, hitsToKill, yard);
 
             alive.Add(container);
             return;
@@ -164,6 +194,7 @@ public class ScalapendraScreamer : ShootableTarget
 {
     private Transform model;
     private Transform player;
+    private AntonchikFenceEncounter yard;
     private float speed;
     private float dieAt;
     private AudioSource voice;
@@ -178,10 +209,11 @@ public class ScalapendraScreamer : ShootableTarget
     private bool dying;
 
     public void Initialise(Transform modelRoot, Transform playerTransform, float chargeSpeed, float lifeTime,
-        RuntimeAnimatorController controller, string stateName, int hitsToKill)
+        RuntimeAnimatorController controller, string stateName, int hitsToKill, AntonchikFenceEncounter yardMap)
     {
         model = modelRoot;
         player = playerTransform;
+        yard = yardMap;
         speed = chargeSpeed;
         dieAt = Time.time + lifeTime;
         health = Mathf.Max(1, hitsToKill);
@@ -275,6 +307,21 @@ public class ScalapendraScreamer : ShootableTarget
     {
         hitBox = gameObject.AddComponent<BoxCollider>();
         UpdateHitBox();
+
+        // The body is moved by transform every frame, so as a solid collider it
+        // would shove the player's rigidbody on contact. Ignore collisions against
+        // the player so the creature can never apply any force/толчок — it still
+        // takes gun raycasts (which ignore this) and damages via the lunge.
+        if (player != null)
+        {
+            foreach (Collider playerCollider in player.GetComponentsInChildren<Collider>(true))
+            {
+                if (playerCollider != null)
+                {
+                    Physics.IgnoreCollision(hitBox, playerCollider, true);
+                }
+            }
+        }
     }
 
     private void UpdateHitBox()
@@ -468,6 +515,13 @@ public class ScalapendraScreamer : ShootableTarget
             return;
         }
 
+        // Freeze in place during dialog/cutscenes and the car escape — no moving,
+        // lunging or expiring until play resumes.
+        if (AntonchikFenceEncounter.CreaturesPaused)
+        {
+            return;
+        }
+
         if (player == null || Time.time >= dieAt)
         {
             BurrowAway();
@@ -497,9 +551,18 @@ public class ScalapendraScreamer : ShootableTarget
 
         if (distance > 0.05f)
         {
-            Quaternion target = Quaternion.LookRotation(toPlayer.normalized, Vector3.up);
-            transform.rotation = Quaternion.Slerp(transform.rotation, target, Time.deltaTime * 6f);
-            transform.position += transform.forward * (speed * Time.deltaTime);
+            // Steer around the house/lamps instead of charging straight through
+            // them, using the same yard map the key spawn uses.
+            Vector3 moveDir = yard != null
+                ? yard.SteerAroundBuildings(transform.position, toPlayer.normalized, 3f)
+                : toPlayer.normalized;
+
+            if (moveDir.sqrMagnitude > 0.0001f)
+            {
+                Quaternion target = Quaternion.LookRotation(moveDir, Vector3.up);
+                transform.rotation = Quaternion.Slerp(transform.rotation, target, Time.deltaTime * 6f);
+                transform.position += moveDir * (speed * Time.deltaTime);
+            }
         }
 
         StickToGround();

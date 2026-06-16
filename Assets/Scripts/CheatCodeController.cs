@@ -222,6 +222,11 @@ public class CheatCodeController : MonoBehaviour
                 GiveGunCheat();
                 Debug.Log("Gun given");
                 break;
+            case "stopsc":
+            case "stopscalapendra":
+                StopScalapendrasCheat();
+                Debug.Log("scalapendra spawning stopped");
+                break;
             case "debugitemspawn":
                 SpawnDebugKeysCheat(100);
                 Debug.Log("debug item spawn");
@@ -230,6 +235,15 @@ public class CheatCodeController : MonoBehaviour
                 SpawnDebugSpawnPointsCheat();
                 Debug.Log("debug points spawn");
                 break;
+        }
+    }
+
+    private void StopScalapendrasCheat()
+    {
+        ScalapendraSpawner spawner = FindObjectOfType<ScalapendraSpawner>();
+        if (spawner != null)
+        {
+            spawner.StopSpawning();
         }
     }
 
@@ -303,8 +317,24 @@ public class CheatCodeController : MonoBehaviour
 
     private GunWeaponController SpawnCheatPistol()
     {
+        // Build-safe: pull the gun from the baked library (the same prefab the yard
+        // used to place on the box). The old "Assets/Prefabs/Pistol_00.prefab" path
+        // is stale — the prefab is now Glock-18 — which is why the cheat silently
+        // failed once the box pistol was removed.
+        GameObject prefab = null;
+        YardAssetLibrary lib = YardAssetLibrary.Instance;
+        if (lib != null)
+        {
+            prefab = lib.pistolPrefab;
+        }
+
 #if UNITY_EDITOR
-        GameObject prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Pistol_00.prefab");
+        if (prefab == null)
+        {
+            prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Glock-18.prefab");
+        }
+#endif
+
         if (prefab == null)
         {
             return null;
@@ -314,12 +344,9 @@ public class CheatCodeController : MonoBehaviour
             ? firstPersonController.transform.position + Vector3.up
             : Vector3.zero;
         GameObject gunObject = Instantiate(prefab, position, Quaternion.identity);
-        gunObject.name = "Pistol_00";
+        gunObject.name = prefab.name;
         BuiltinPipelineCompatibility.PatchSpawnedObject(gunObject);
         return gunObject.GetComponent<GunWeaponController>();
-#else
-        return null;
-#endif
     }
 
     private void JumpToTask(int task)

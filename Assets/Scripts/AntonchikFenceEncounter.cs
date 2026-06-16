@@ -40,12 +40,14 @@ public class AntonchikFenceEncounter : MonoBehaviour
     [SerializeField] private GameObject magazinePrefab;
     [SerializeField] private GameObject snusPrefab;
     [SerializeField] private GameObject truckPrefab;
+    [SerializeField] private GameObject gateKeyPrefab;
 
     [Header("Audio")]
     [SerializeField] private AudioClip jumpscareSound;
     [SerializeField] private AudioClip typingSound;
     [SerializeField] private AudioClip lineFinishedSound;
     [SerializeField] private AudioClip shotSound;
+    [SerializeField] private AudioClip rainSound;
 
     private FirstPersonController playerController;
     private Transform playerTransform;
@@ -99,6 +101,10 @@ public class AntonchikFenceEncounter : MonoBehaviour
     }
 
     public static bool SequenceActive { get; private set; }
+
+    // The yard creatures (scalapendras + screamer) freeze and stop spawning while
+    // a dialog/cutscene is playing or the player is escaping in the car.
+    public static bool CreaturesPaused => SequenceActive || CarEscapeController.IsEscaping;
 
     // One-line quest summary for the cheat "stats" overlay.
     public string CheatStatusLine()
@@ -207,11 +213,13 @@ public class AntonchikFenceEncounter : MonoBehaviour
             if (magazinePrefab == null) magazinePrefab = lib.magazinePrefab;
             if (snusPrefab == null) snusPrefab = lib.snusPrefab;
             if (truckPrefab == null) truckPrefab = lib.truckPrefab;
+            if (gateKeyPrefab == null) gateKeyPrefab = lib.gateKeyPrefab;
             if (idleClip == null) idleClip = lib.idleClip;
             if (walkClip == null) walkClip = lib.walkClip;
             if (typingSound == null) typingSound = lib.typingSound;
             if (lineFinishedSound == null) lineFinishedSound = lib.lineFinishedSound;
             if (shotSound == null) shotSound = lib.shotSound;
+            if (rainSound == null) rainSound = lib.rainSound;
         }
 
 #if UNITY_EDITOR
@@ -240,6 +248,11 @@ public class AntonchikFenceEncounter : MonoBehaviour
             truckPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Pickup/Prefabs/PickUp_Damaged.prefab");
         }
 
+        if (gateKeyPrefab == null)
+        {
+            gateKeyPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Ключ от ворот.prefab");
+        }
+
         if (idleClip == null)
         {
             idleClip = AssetDatabase.LoadAssetAtPath<AnimationClip>("Assets/3d/Standing Idle.fbx");
@@ -263,6 +276,11 @@ public class AntonchikFenceEncounter : MonoBehaviour
         if (shotSound == null)
         {
             shotSound = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/SFX/shot.mp3");
+        }
+
+        if (rainSound == null)
+        {
+            rainSound = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/SFX/rain.mp3");
         }
 #endif
 
@@ -290,8 +308,9 @@ public class AntonchikFenceEncounter : MonoBehaviour
         scalapendraSpawner = gameObject.AddComponent<ScalapendraSpawner>();
         screamerController = gameObject.AddComponent<ScreamerController>();
 
+        SetupRainAmbient();
         SpawnTruck();
-        PlacePistolOnBox();
+        // Gun is no longer pre-placed on the box; it must be obtained another way.
 
         StartCoroutine(InitialObjectiveRoutine());
     }
@@ -303,6 +322,26 @@ public class AntonchikFenceEncounter : MonoBehaviour
         {
             TaskHud.SetObjective($"Найди способ <color={TaskHud.Highlight}>выбраться со двора</color>");
         }
+    }
+
+    // Constant rain ambience for the yard. Lives on the player as a 2D (non-
+    // spatial) looping source so it sits quietly under everything else, the same
+    // way background music does — independent of where the player walks.
+    private void SetupRainAmbient()
+    {
+        if (rainSound == null)
+        {
+            return;
+        }
+
+        GameObject host = playerController != null ? playerController.gameObject : gameObject;
+        AudioSource rain = host.AddComponent<AudioSource>();
+        rain.clip = rainSound;
+        rain.loop = true;
+        rain.playOnAwake = false;
+        rain.spatialBlend = 0f;
+        rain.volume = 0.2f;
+        rain.Play();
     }
 
     private void SpawnTruck()
@@ -638,7 +677,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
         public Func<bool> VisibleIf;
         public Func<IEnumerator> Effect;
         public string NextId;
-        public int TrustDelta;
+        public int TrustDelta = 31;
     }
 
     private class DialogNode
@@ -661,7 +700,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
             Choices =
             {
                 new DialogChoice { Text = "Мужчина, денег нет", TrustDelta = -20, NextId = "execution" },
-                new DialogChoice { Text = "Пососи сука нихуя нету", TrustDelta = -20, NextId = "angry" },
+                new DialogChoice { Text = "Пососи сука нихуя нету", TrustDelta = -30, NextId = "angry" },
                 new DialogChoice
                 {
                     Text = "Денег нет, но есть пойло. Jameson. Будешь?",
@@ -1056,13 +1095,23 @@ public class AntonchikFenceEncounter : MonoBehaviour
             return;
         }
 
-        // Bias well into the yard: the snus anchors (trees / lamp / box) sit at
-        // the perimeter, so the default inward range can leave it behind the fence.
-        Vector3 spot = PickHiddenSpot(new[] { "box", "chair", "trees2", "lamp.004", "trees1.001" }, 2.5f, 4.5f);
+        // Hide it along the borders of the map rather than out in the open middle.
+        Vector3 spot = PickBorderSpot();
         snusInstance = Instantiate(snusPrefab, spot, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f));
         snusInstance.name = "snus";
+        // Twice the prefab size so it's easier to spot on the ground.
+        snusInstance.transform.localScale *= 2f;
         BuiltinPipelineCompatibility.PatchSpawnedObject(snusInstance);
         RestOnGround(snusInstance, spot.y, 0.05f);
+        // Pin it where it was placed: the yard floor is a convex mesh collider that
+        // a small dynamic body can tunnel straight through, which dropped the snus
+        // out of the world. Kinematic keeps it resting on the ground (pickup is a
+        // raycast, so it still works).
+        Rigidbody snusBody = snusInstance.GetComponentInChildren<Rigidbody>();
+        if (snusBody != null)
+        {
+            snusBody.isKinematic = true;
+        }
         AddSearchGlow(snusInstance, new Color(0.35f, 0.8f, 0.4f, 1f));
     }
 
@@ -1073,8 +1122,8 @@ public class AntonchikFenceEncounter : MonoBehaviour
             return;
         }
 
-        Vector3 spot = PickHiddenSpot(new[] { "fence", "fence.001", "fence.002", "fence.003" });
-        gateKeysInstance = BuildKeysProp();
+        Vector3 spot = PickBorderSpot();
+        gateKeysInstance = CreateGateKeyObject();
         gateKeysInstance.transform.position = spot;
         RestOnGround(gateKeysInstance, spot.y, 0.02f);
         AddSearchGlow(gateKeysInstance, new Color(0.95f, 0.75f, 0.25f, 1f));
@@ -1087,11 +1136,10 @@ public class AntonchikFenceEncounter : MonoBehaviour
     // and picking one up does not advance the quest.
     public void CheatSpawnDebugKeys(int count)
     {
-        string[] anchors = { "fence", "fence.001", "fence.002", "fence.003" };
         for (int i = 0; i < count; i++)
         {
-            Vector3 spot = PickHiddenSpot(anchors);
-            GameObject keys = BuildKeysProp();
+            Vector3 spot = PickBorderSpot();
+            GameObject keys = CreateGateKeyObject();
             keys.name = "Ключи (debug)";
             keys.transform.position = spot;
             RestOnGround(keys, spot.y, 0.02f);
@@ -1124,7 +1172,7 @@ public class AntonchikFenceEncounter : MonoBehaviour
                     continue;
                 }
 
-                GameObject keys = BuildKeysProp();
+                GameObject keys = CreateGateKeyObject();
                 keys.name = "Ключи (debug point)";
                 keys.transform.position = spot;
                 RestOnGround(keys, spot.y, 0.02f);
@@ -1136,6 +1184,54 @@ public class AntonchikFenceEncounter : MonoBehaviour
                 }
             }
         }
+    }
+
+    // Picks a spot hugging the perimeter of the walkable yard floor (its borders),
+    // snapped to valid ground and clear of building/lamp footprints. Used for the
+    // snus and the gate key so they hide along the edges of the map instead of out
+    // in the open middle. Falls back to the fence-anchored hidden spot when no
+    // border candidate validates.
+    private Vector3 PickBorderSpot(float inwardMin = 0.8f, float inwardMax = 3f)
+    {
+        Collider ground = ResolveGroundFloor();
+        if (ground == null)
+        {
+            return PickHiddenSpot(new[] { "fence", "fence.001", "fence.002", "fence.003" });
+        }
+
+        Bounds bounds = ground.bounds;
+        for (int attempt = 0; attempt < 40; attempt++)
+        {
+            float inward = UnityEngine.Random.Range(inwardMin, inwardMax);
+            float x, z;
+            switch (UnityEngine.Random.Range(0, 4))
+            {
+                case 0: // west edge
+                    x = bounds.min.x + 0.4f + inward;
+                    z = UnityEngine.Random.Range(bounds.min.z + 0.4f, bounds.max.z - 0.4f);
+                    break;
+                case 1: // east edge
+                    x = bounds.max.x - 0.4f - inward;
+                    z = UnityEngine.Random.Range(bounds.min.z + 0.4f, bounds.max.z - 0.4f);
+                    break;
+                case 2: // south edge
+                    z = bounds.min.z + 0.4f + inward;
+                    x = UnityEngine.Random.Range(bounds.min.x + 0.4f, bounds.max.x - 0.4f);
+                    break;
+                default: // north edge
+                    z = bounds.max.z - 0.4f - inward;
+                    x = UnityEngine.Random.Range(bounds.min.x + 0.4f, bounds.max.x - 0.4f);
+                    break;
+            }
+
+            Vector3 column = new Vector3(x, bounds.max.y + 2f, z);
+            if (TrySnapToGround(column, ground, out Vector3 grounded))
+            {
+                return grounded;
+            }
+        }
+
+        return PickHiddenSpot(new[] { "fence", "fence.001", "fence.002", "fence.003" });
     }
 
     private Vector3 PickHiddenSpot(string[] anchorNames, float inwardMin = 0.8f, float inwardMax = 3.2f)
@@ -1188,6 +1284,72 @@ public class AntonchikFenceEncounter : MonoBehaviour
         }
 
         return new Vector3(center.x, bounds.max.y, center.z);
+    }
+
+    // Public spawn helpers so the scalapendras and the screamer place and move
+    // using the same yard map the key spawn uses: snap onto the real walkable
+    // floor and stay out of the house / lamp footprints, instead of dropping onto
+    // roofs or charging straight through buildings.
+
+    // Snaps a world position straight down onto the walkable ground floor. Returns
+    // false when the column lands on a roof, the exit platform, a prop, or under a
+    // building/lamp — i.e. anywhere a creature should not stand.
+    public bool TrySnapSpawnToGround(Vector3 position, out Vector3 grounded)
+    {
+        grounded = position;
+        Collider ground = ResolveGroundFloor();
+        if (ground == null)
+        {
+            return false;
+        }
+
+        Vector3 column = new Vector3(position.x, ground.bounds.max.y + 2f, position.z);
+        return TrySnapToGround(column, ground, out grounded);
+    }
+
+    // True when the point sits inside the house or a lamp footprint, so callers can
+    // keep creatures from spawning inside or walking into buildings.
+    public bool IsSpawnBlocked(Vector3 point)
+    {
+        return IsBlockedSpot(point);
+    }
+
+    // Local obstacle avoidance: given where a creature wants to go, return a flat
+    // direction that doesn't drive it into a building/lamp footprint. Probes the
+    // desired heading first, then fans out to either side until it finds a clear
+    // look-ahead, so the creature curves around the house instead of bumping into
+    // it. Returns Vector3.zero only when fully boxed in.
+    public Vector3 SteerAroundBuildings(Vector3 fromPosition, Vector3 desiredDirection, float lookAhead)
+    {
+        desiredDirection.y = 0f;
+        if (desiredDirection.sqrMagnitude < 0.0001f)
+        {
+            return Vector3.zero;
+        }
+
+        desiredDirection.Normalize();
+        EnsureSpawnBlockers();
+
+        // 0° first (straight at the target), then alternating left/right sweeps.
+        for (int step = 0; step <= 8; step++)
+        {
+            float angle = step * 22.5f;
+            for (int sign = 1; sign >= -1; sign -= 2)
+            {
+                if (step == 0 && sign < 0)
+                {
+                    continue;
+                }
+
+                Vector3 dir = Quaternion.Euler(0f, angle * sign, 0f) * desiredDirection;
+                if (!IsBlockedSpot(fromPosition + dir * lookAhead))
+                {
+                    return dir;
+                }
+            }
+        }
+
+        return Vector3.zero;
     }
 
     // Resolves the walkable ground surface once. The yard's floor is an object
@@ -1401,6 +1563,44 @@ public class AntonchikFenceEncounter : MonoBehaviour
         glow.range = 2.2f;
         glow.intensity = 1.1f;
         glowObject.AddComponent<PulsingLight>();
+    }
+
+    // Spawns the authored gate-key prefab ("Ключ от ворот"). The instance is
+    // renamed to "Ключи от ворот" so the existing quest checks
+    // (HasItemNamed/TakeItemNamed) keep matching, and a PickupInteractable is
+    // ensured so it can be picked up. Falls back to the old procedural prop only
+    // if the prefab is missing.
+    private GameObject CreateGateKeyObject()
+    {
+        if (gateKeyPrefab == null)
+        {
+            return BuildKeysProp();
+        }
+
+        GameObject keys = Instantiate(gateKeyPrefab);
+        keys.name = "Ключи от ворот";
+        BuiltinPipelineCompatibility.PatchSpawnedObject(keys);
+
+        PickupInteractable pickup = keys.GetComponentInChildren<PickupInteractable>();
+        if (pickup == null)
+        {
+            pickup = keys.AddComponent<PickupInteractable>();
+        }
+
+        // Authored held pose so the key sits correctly in the player's hand.
+        pickup.SetCustomHeldPose(new Vector3(-43.05f, -3.1f, -14.2f), Vector3.zero, Vector3.one * 5.96f);
+
+        // PhysX rejects concave mesh colliders on dynamic rigidbodies.
+        Rigidbody body = keys.GetComponentInChildren<Rigidbody>();
+        if (body != null)
+        {
+            foreach (MeshCollider meshCollider in keys.GetComponentsInChildren<MeshCollider>(true))
+            {
+                meshCollider.convex = true;
+            }
+        }
+
+        return keys;
     }
 
     private GameObject BuildKeysProp()
