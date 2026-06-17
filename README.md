@@ -78,6 +78,7 @@ code, and press **Enter** (`Esc` cancels). Codes are case-insensitive.
 | `stats`            | `fps`               | Toggle the FPS / debug stats overlay.                                                    |
 | `debugItemSpawn`   |                     | Spawn 100 gate-key props near the fences (ground-only spawn test).                       |
 | `debugSpawnPoints` |                     | Lay key props on a grid across the whole map to visualize ground spawn coverage.         |
+| `stopsc`           |                     | Stop spawning scalapendras and tonus_rim                                                 |
 
 The two `debug*` codes are diagnostic stress-spawns — they drop many physics props
 into the scene, so expect a framerate cost until the scene reloads.
